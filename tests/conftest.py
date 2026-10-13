@@ -15,6 +15,14 @@ import pygame  # noqa: E402
 import pytest  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _isolated_save(tmp_path, monkeypatch):
+    """The suite must NEVER touch the real save/ dir (4c, D3 hygiene)."""
+    from src import config
+    monkeypatch.setattr(config, "SAVE_PATH",
+                        str(tmp_path / "progress.json"))
+
+
 @pytest.fixture(scope="session")
 def pygame_ready():
     """Initialize pygame once for tests that need surfaces/fonts."""

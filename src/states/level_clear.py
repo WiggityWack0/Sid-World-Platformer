@@ -3,6 +3,7 @@
 import pygame
 
 from src import inputs
+from src import progress
 from src.config import (COIN_CLEAR_BONUS, LEVELS_PER_RUN, TIME_BONUS_PER_UNIT,
                         VIEW_H, VIEW_W)
 from src.states.base import State
@@ -19,6 +20,11 @@ class LevelClearState(State):
         self.coin_bonus = coin_bonus
         self.phase = "time"          # time -> coins -> done
         self.tick_accum = 0
+        # 6b: best-score comparison captured BEFORE record_clear updates it
+        run = self.game.run
+        prev_best = self.game.progress.get("best_scores", {}) \
+            .get(str(run.level_index), 0)
+        self.new_best = run.score > prev_best
 
     def handle_event(self, event):
         if event.type != pygame.KEYDOWN or event.key == pygame.K_m:
@@ -26,11 +32,15 @@ class LevelClearState(State):
         if inputs.key_to_action(event.key) == "confirm" \
                 and self.phase == "done":
             run = self.game.run
+            progress.record_clear(self.game.progress, run.level_index,
+                                  run.score)      # unlock + best score (4c)
+            progress.save(self.game.progress)
             run.level_index += 1
             self.game.audio.play_sfx("confirm")
             if run.finished:
                 self.game.audio.play_music("title")
-                self.game.switch_state("victory")
+                self.game.switch_state("victory",
+                                       new_best=self.new_best)   # 6b
             else:
                 self.game.switch_state("playing")
 
@@ -79,3 +89,6 @@ class LevelClearState(State):
                 else "PRESS ENTER TO CONTINUE"
             hud.text_center(surf, VIEW_W // 2, 202, more,
                             (255, 255, 255), hud.mid_font)
+        if self.new_best and (self.t // 15) % 2 == 0:      # 6b
+            hud.text_center(surf, VIEW_W // 2, 184, "NEW BEST!",
+                            (255, 240, 120), hud.mid_font)

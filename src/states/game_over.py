@@ -2,6 +2,7 @@
 
 import pygame
 
+from src import config
 from src import inputs
 from src.config import VIEW_H, VIEW_W
 from src.states.base import State
@@ -37,6 +38,9 @@ class GameOverState(State):
             hud.text_center(surf, VIEW_W // 2, 132,
                             f"FINAL SCORE {run.score:06d}",
                             (255, 255, 255), hud.mid_font)
+            hud.text_center(surf, VIEW_W // 2, 154,                     # 6b
+                            f"REACHED LEVEL {run.level_index + 1}"
+                            f"/{config.LEVELS_PER_RUN}")
         if (self.t // 30) % 2 == 0:
             hud.text_center(surf, VIEW_W // 2, 186,
                             "PRESS ENTER FOR TITLE",

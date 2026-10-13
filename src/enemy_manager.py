@@ -33,22 +33,30 @@ class EnemyManager:
         hi = cam.x + ACTIVATION_FRAC * VIEW_W
         for enemy in self.enemies:
             enemy.active = lo <= enemy.cx <= hi
+            if enemy.frozen > 0:          # ice form: uniform attr contract
+                enemy.frozen -= 1         # (no isinstance dispatch)
+                continue
             enemy.update(level, player)
 
-        # sliding shells crush other enemies
+        # sliding shells crush other enemies (never bosses — 5b)
         for shell in self.enemies:
             if (shell.alive and getattr(shell, "sliding", False)):
                 for other in self.enemies:
                     if other is not shell and other.alive \
+                            and not getattr(other, "is_boss", False) \
                             and shell.rect.colliderect(other.rect):
                         other.start_dying()
 
-        # drain new spitter shots without isinstance dispatch
+        # drain new spitter/boss shots without isinstance dispatch
         for enemy in self.enemies:
             shots = getattr(enemy, "shots", None)
             if shots:
                 self.projectiles.extend(shots)
                 shots.clear()
+            reinf = getattr(enemy, "reinforcements", None)   # 5c (owl)
+            if reinf:
+                self.enemies.extend(spawn_enemy(*s) for s in reinf)
+                reinf.clear()
 
         for proj in self.projectiles:
             proj.update(level)

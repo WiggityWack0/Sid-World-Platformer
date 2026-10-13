@@ -32,6 +32,7 @@ class Enemy:
         self.death_timer = 0
         self.anim_t = 0
         self.wall_hit = 0         # -1/1 from last move_x
+        self.frozen = 0           # ice-form ticks remaining (uniform contract)
         self.spawn = (x, y)
 
     # ------------------------------------------------------------ helpers
@@ -80,6 +81,7 @@ class Enemy:
         self.active = False
         self.on_ground = False
         self.facing = -1
+        self.frozen = 0
 
     # ------------------------------------------------------------- update
     def update(self, level, player):
