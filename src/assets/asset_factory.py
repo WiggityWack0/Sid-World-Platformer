@@ -10,7 +10,8 @@ import math
 
 import pygame
 
-from src.config import TILE, VIEW_W, VIEW_H
+from src.config import (TILE, VIEW_W, VIEW_H, FORM_COLORS, POWERUP_COLORS,
+                        ZONES)
 from src.level import tiles as T
 
 # ------------------------------------------------------------------ palette
@@ -35,6 +36,20 @@ COIN_GOLD = (255, 208, 52)
 COIN_DK = (214, 148, 20)
 COIN_SHINE = (255, 246, 190)
 
+# ----------------------------------------------------------------- palette
+# The DEFAULT world palette = the legacy constants above (zone-0 identity).
+# Zone themes override via AssetFactory(pal=...) / for_zone(zone) (4b).
+DEFAULT_PAL = {
+    "sky_top": (92, 148, 250), "sky_bottom": (172, 214, 255),
+    "cloud": (252, 253, 255), "cloud_dk": (216, 228, 248),
+    "hills_far_body": (94, 150, 152), "hills_far_crest": (130, 188, 178),
+    "hills_near_body": (56, 138, 74), "hills_near_crest": (98, 180, 98),
+    "dirt": DIRT, "dirt_dk": DIRT_DK, "dirt_lt": DIRT_LT,
+    "grass": GRASS, "grass_dk": GRASS_DK, "grass_lt": GRASS_LT,
+    "brick": BRICK, "brick_dk": BRICK_DK,
+}
+THEMED_KEYS = tuple(sorted(DEFAULT_PAL))
+
 
 def make_surface(w, h):
     return pygame.Surface((w, h), pygame.SRCALPHA)
@@ -51,22 +66,23 @@ def _dotted(surf, color, points):
 
 # ------------------------------------------------------------------- tiles
 
-def _terrain_variant(mask):
+def _terrain_variant(mask, pal=None):
     """Generate one 16x16 autotile variant for terrain (mask bits N/E/S/W)."""
+    pal = pal or DEFAULT_PAL
     s = make_surface(TILE, TILE)
     n, e, so, w = mask & 1, mask & 2, mask & 4, mask & 8
     # dirt body
-    s.fill(DIRT)
-    _dotted(s, DIRT_DK, [(3, 7), (11, 4), (6, 12), (13, 11), (9, 9), (2, 13)])
-    _dotted(s, DIRT_LT, [(5, 5), (12, 8), (8, 13), (14, 6), (1, 9)])
+    s.fill(pal["dirt"])
+    _dotted(s, pal["dirt_dk"], [(3, 7), (11, 4), (6, 12), (13, 11), (9, 9), (2, 13)])
+    _dotted(s, pal["dirt_lt"], [(5, 5), (12, 8), (8, 13), (14, 6), (1, 9)])
     # grass cap when no solid above
     if not n:
-        s.fill(GRASS, pygame.Rect(0, 0, TILE, 4))
+        s.fill(pal["grass"], pygame.Rect(0, 0, TILE, 4))
         for gx in range(0, TILE, 3):            # tufts
-            s.set_at((gx, 4), GRASS_DK)
-        s.fill(GRASS_DK, pygame.Rect(0, 4, TILE, 1))
+            s.set_at((gx, 4), pal["grass_dk"])
+        s.fill(pal["grass_dk"], pygame.Rect(0, 4, TILE, 1))
         for gx in (1, 2, 6, 7, 11, 12):
-            s.set_at((gx, 1), GRASS_LT)
+            s.set_at((gx, 1), pal["grass_lt"])
     # exposed-side outlines
     if not w:
         s.fill(OUTLINE, pygame.Rect(0, 0, 1, TILE))
@@ -85,9 +101,10 @@ def _terrain_variant(mask):
     return s
 
 
-def _make_brick():
+def _make_brick(pal=None):
+    pal = pal or DEFAULT_PAL
     s = make_surface(TILE, TILE)
-    s.fill(BRICK)
+    s.fill(pal["brick"])
     for row in range(4):
         y0 = row * 4
         s.fill(MORTAR, pygame.Rect(0, y0, TILE, 1))
@@ -547,6 +564,84 @@ def _mk_jumper(air=False):
     return s
 
 
+def _mk_squash(body):
+    """Generic flat death-squash blob (5a)."""
+    s = make_surface(16, 16)
+    pygame.draw.ellipse(s, body, pygame.Rect(1, 10, 14, 5))
+    pygame.draw.ellipse(s, OUTLINE, pygame.Rect(1, 10, 14, 5), 1)
+    return s
+
+
+def _mk_shieldkin(phase):
+    s = make_surface(16, 16)
+    body = (104, 112, 130)
+    pygame.draw.ellipse(s, body, pygame.Rect(1, 3, 11, 11))
+    pygame.draw.ellipse(s, OUTLINE, pygame.Rect(1, 3, 11, 11), 1)
+    # shield plate on the front (right) side; flipped with facing
+    pygame.draw.rect(s, (168, 176, 196), pygame.Rect(11, 2, 4, 12))
+    pygame.draw.rect(s, OUTLINE, pygame.Rect(11, 2, 4, 12), 1)
+    _eyes(s, 4, 6, 8, 2)
+    for px in (4, 8):
+        s.fill((72, 78, 94), pygame.Rect(px, 13, 3, 3 if phase else 2))
+    return s
+
+
+def _mk_bomber(phase):
+    s = make_surface(16, 16)
+    body = (72, 76, 92)
+    pygame.draw.circle(s, body, (8, 10), 6)
+    pygame.draw.circle(s, OUTLINE, (8, 10), 6, 1)
+    # fuse with a spark
+    s.fill((120, 100, 80), pygame.Rect(9, 2, 2, 3))
+    spark = (255, 210, 90) if phase == 0 else (255, 150, 60)
+    s.set_at((10, 1), spark)
+    s.set_at((11, 2), spark)
+    _eyes(s, 5, 9, 4, 1)
+    return s
+
+
+def _mk_wallcrawler(phase):
+    s = make_surface(16, 16)
+    body = (128, 92, 168)
+    pygame.draw.ellipse(s, body, pygame.Rect(1, 5, 14, 8))
+    pygame.draw.ellipse(s, OUTLINE, pygame.Rect(1, 5, 14, 8), 1)
+    # legs on TOP (it crawls ceilings/walls)
+    for px in (2, 6, 10, 13):
+        s.fill(body, pygame.Rect(px, 2, 2, 3))
+        s.set_at((px, 2), OUTLINE)
+    _eyes(s, 4, 9, 8, 1)
+    return s
+
+
+def _mk_charger(phase, attack=False):
+    s = make_surface(16, 16)
+    body = (188, 108, 64) if not attack else (214, 128, 74)
+    pygame.draw.ellipse(s, body, pygame.Rect(1, 4, 13, 10))
+    pygame.draw.ellipse(s, OUTLINE, pygame.Rect(1, 4, 13, 10), 1)
+    # horns on the front (right) — flipped with facing
+    s.fill((238, 226, 200), pygame.Rect(12, 3, 3, 2))
+    s.fill((238, 226, 200), pygame.Rect(12, 12, 3, 2))
+    _eyes(s, 8, 7, 3, 1)
+    if attack:
+        for px in (2, 5, 8, 11):                 # dash speed lines
+            s.set_at((px, 15), (255, 220, 150))
+    return s
+
+
+def _mk_needler(phase, attack=False):
+    s = make_surface(16, 16)
+    body = (96, 150, 120)
+    pygame.draw.rect(s, body, pygame.Rect(3, 6, 10, 9))
+    pygame.draw.rect(s, OUTLINE, pygame.Rect(3, 6, 10, 9), 1)
+    # barrel on the front (right)
+    pygame.draw.rect(s, body, pygame.Rect(11, 8, 5, 3))
+    pygame.draw.rect(s, OUTLINE, pygame.Rect(11, 8, 5, 3), 1)
+    if attack:
+        pygame.draw.circle(s, (255, 240, 140), (16, 9), 2)
+    _eyes(s, 5, 9, 3, 1)
+    return s
+
+
 def _build_enemy_frames():
     for phase in (0, 1):
         ENEMY_FRAMES[("walker", "patrol", phase)] = _mk_walker(phase)
@@ -566,14 +661,29 @@ def _build_enemy_frames():
     ENEMY_FRAMES[("spitter", "attack", 0)] = _mk_spitter(True)
     for phase in (0, 1, 2):
         ENEMY_FRAMES[("shellback", "shell", phase)] = _mk_shell(phase)
+    # ---- 5a: five new types ----
+    for phase in (0, 1):
+        ENEMY_FRAMES[("shieldkin", "patrol", phase)] = _mk_shieldkin(phase)
+        ENEMY_FRAMES[("bomber", "patrol", phase)] = _mk_bomber(phase)
+        ENEMY_FRAMES[("wallcrawler", "patrol", phase)] = _mk_wallcrawler(phase)
+        ENEMY_FRAMES[("charger", "patrol", phase)] = _mk_charger(phase)
+        ENEMY_FRAMES[("charger", "attack", phase)] = _mk_charger(phase, True)
+        ENEMY_FRAMES[("needler", "patrol", phase)] = _mk_needler(phase)
+        ENEMY_FRAMES[("needler", "attack", phase)] = _mk_needler(phase, True)
+    ENEMY_FRAMES[("shieldkin", "dying", 0)] = _mk_squash((104, 112, 130))
+    ENEMY_FRAMES[("bomber", "dying", 0)] = _mk_squash((72, 76, 92))
+    ENEMY_FRAMES[("wallcrawler", "dying", 0)] = _mk_squash((128, 92, 168))
+    ENEMY_FRAMES[("charger", "dying", 0)] = _mk_squash((188, 108, 64))
+    ENEMY_FRAMES[("needler", "dying", 0)] = _mk_squash((96, 150, 120))
 
 
 # ------------------------------------------------------------- backgrounds
 
-def _make_sky():
+def _make_sky(pal=None):
+    pal = pal or DEFAULT_PAL
     s = make_surface(VIEW_W, VIEW_H)
-    top = (92, 148, 250)
-    bottom = (172, 214, 255)
+    top = pal["sky_top"]
+    bottom = pal["sky_bottom"]
     for y in range(VIEW_H):
         f = y / (VIEW_H - 1)
         col = tuple(int(top[i] + (bottom[i] - top[i]) * f) for i in range(3))
@@ -597,7 +707,135 @@ def _make_hills(width, base, amps, body, crest):
     return s
 
 
-def _make_clouds():
+def _make_powerup(kind, frame):
+    """Small original orb sprite per power-up kind; 2-frame glint accent."""
+    s = make_surface(14, 14)
+    body = POWERUP_COLORS[kind]
+    edge = tuple(max(0, c - 100) for c in body)
+    hi = tuple(min(255, c + 70) for c in body)
+    pygame.draw.circle(s, body, (7, 7), 5)
+    pygame.draw.circle(s, edge, (7, 7), 5, 1)
+    pygame.draw.circle(s, hi, (5, 5), 1)
+    pygame.draw.circle(s, edge, (7, 2), 1)          # seam dot on top
+    if frame:                                       # blinking glint
+        s.set_at((10, 4), (255, 255, 255))
+    return s
+
+
+def _make_attack(kind, frame):
+    """Tiny original attack sprite (8x8) per form kind; 2-frame accent."""
+    s = make_surface(8, 8)
+    body = FORM_COLORS[kind]
+    if kind == "fire":
+        pygame.draw.circle(s, body, (4, 4), 3)
+        pygame.draw.circle(s, (255, 224, 130), (3, 3), 1)   # hot core
+    elif kind == "ice":
+        pygame.draw.polygon(s, body, [(1, 4), (4, 1), (7, 4), (4, 7)])
+        pygame.draw.polygon(s, (230, 250, 255),
+                            [(2, 4), (4, 2), (6, 4), (4, 6)], 1)
+    else:                                                   # lightning
+        for i, px in enumerate(range(1, 7)):
+            s.set_at((px, 4 + (1 if (i + frame) % 2 else -1)), body)
+        s.set_at((4, 4), (255, 255, 255))
+    return s
+
+
+def _make_door():
+    """Original door-slab tile: vertical planks with iron bands."""
+    s = make_surface(TILE, TILE)
+    wood = (124, 84, 56)
+    wood_lt = (150, 106, 72)
+    band = (88, 92, 108)
+    s.fill(wood)
+    s.fill(wood_lt, pygame.Rect(2, 0, 2, TILE))
+    s.fill(wood_lt, pygame.Rect(9, 0, 2, TILE))
+    s.fill(band, pygame.Rect(0, 3, TILE, 2))
+    s.fill(band, pygame.Rect(0, 11, TILE, 2))
+    pygame.draw.circle(s, (210, 214, 230), (12, 8), 1)   # handle
+    s.fill(OUTLINE, pygame.Rect(0, 0, TILE, 1))
+    s.fill(OUTLINE, pygame.Rect(0, TILE - 1, TILE, 1))
+    s.fill(OUTLINE, pygame.Rect(0, 0, 1, TILE))
+    s.fill(OUTLINE, pygame.Rect(TILE - 1, 0, 1, TILE))
+    return s
+
+
+def _make_switch_plate(active):
+    """Original floor switch: low plate, pressed (dark) or raised (bright)."""
+    s = make_surface(TILE, 8)
+    body = (150, 156, 176) if active else (208, 214, 232)
+    edge = (88, 92, 108)
+    h = 3 if active else 5
+    pygame.draw.rect(s, body, pygame.Rect(1, 8 - h, TILE - 2, h))
+    pygame.draw.rect(s, edge, pygame.Rect(1, 8 - h, TILE - 2, h), 1)
+    return s
+
+
+def _make_plate(active):
+    """Original pressure plate: wider, darker when fired (3b-1)."""
+    s = make_surface(TILE, 8)
+    body = (188, 140, 60) if active else (224, 196, 120)
+    edge = (110, 74, 30)
+    h = 3 if active else 5
+    pygame.draw.rect(s, body, pygame.Rect(0, 8 - h, TILE, h))
+    pygame.draw.rect(s, edge, pygame.Rect(0, 8 - h, TILE, h), 1)
+    return s
+
+
+def _make_shard(frame):
+    """Original objective shard (3c): cyan crystal, 2-frame glint."""
+    s = make_surface(12, 14)
+    body = (120, 230, 255)
+    edge = (40, 120, 160)
+    hi = (240, 255, 255)
+    pygame.draw.polygon(s, body, [(6, 0), (11, 5), (6, 13), (1, 5)])
+    pygame.draw.polygon(s, edge, [(6, 0), (11, 5), (6, 13), (1, 5)], 1)
+    pygame.draw.line(s, hi, (6, 2), (6, 11), 1)          # facet
+    if frame:
+        s.set_at((4, 4), hi)                              # glint
+    return s
+
+
+def _make_spiker(frame):
+    """Original spiked slab (3b-2): iron block with rotating spikes."""
+    s = make_surface(16, 16)
+    body = (120, 126, 146)
+    edge = (64, 68, 84)
+    spike = (176, 186, 202)
+    pygame.draw.rect(s, body, pygame.Rect(3, 3, 10, 10))
+    pygame.draw.rect(s, edge, pygame.Rect(3, 3, 10, 10), 1)
+    if frame % 2 == 0:                          # spikes N/E/S/W
+        for cx, cy, dx, dy in ((8, 1, 0, -1), (14, 8, 1, 0),
+                               (8, 14, 0, 1), (1, 8, -1, 0)):
+            pygame.draw.polygon(s, spike,
+                                [(cx, cy), (cx + dy * 3 - dx * 2,
+                                            cy + dx * 3 - dy * 2),
+                                 (cx - dy * 3 - dx * 2,
+                                  cy - dx * 3 - dy * 2)])
+    else:                                       # spikes on the diagonals
+        for cx, cy in ((4, 4), (11, 4), (4, 11), (11, 11)):
+            pygame.draw.circle(s, spike, (cx, cy), 2)
+    pygame.draw.circle(s, edge, (8, 8), 2)
+    return s
+
+
+def _make_lava(frame):
+    """Original lava tile: molten surface, 2-frame pulse (3b-1)."""
+    s = make_surface(TILE, TILE)
+    hot = (255, 140, 30) if frame else (255, 170, 40)
+    deep = (190, 48, 20)
+    glow = (255, 220, 90)
+    s.fill(deep)
+    s.fill(hot, pygame.Rect(0, 0, TILE, 6))
+    for x in range(TILE):                          # bubbling surface
+        if (x * 7 + frame * 3) % 11 < 3:
+            s.set_at((x, 6), deep)
+    s.set_at((3 + frame, 2), glow)
+    s.set_at((11 - frame, 3), glow)
+    return s
+
+
+def _make_clouds(pal=None):
+    pal = pal or DEFAULT_PAL
     s = make_surface(VIEW_W + 80, VIEW_H)
     clusters = [(50, 40, 1.0), (170, 24, 0.8), (280, 60, 1.2),
                 (360, 30, 0.7)]
@@ -608,9 +846,9 @@ def _make_clouds():
             for ox, oy, r in ((0, 0, 10), (12, -4, 13), (26, 0, 10),
                               (10, 5, 12), (22, 6, 9)):
                 rr = int(r * scale)
-                pygame.draw.circle(s, (252, 253, 255),
+                pygame.draw.circle(s, pal["cloud"],
                                    (int(dx + ox * scale), int(cy + oy)), rr)
-                pygame.draw.circle(s, (216, 228, 248),
+                pygame.draw.circle(s, pal["cloud_dk"],
                                    (int(dx + ox * scale), int(cy + oy)), rr, 1)
     return s
 
@@ -620,29 +858,57 @@ def _make_clouds():
 class AssetFactory:
     """Builds and caches every surface the game needs at startup."""
 
-    def __init__(self):
+    def __init__(self, pal=None):
+        self._pal = pal or DEFAULT_PAL
         _build_player_frames()
         _build_enemy_frames()
-        self._terrain = [_terrain_variant(m) for m in range(16)]
-        self._brick = _make_brick()
+        self._terrain = [_terrain_variant(m, self._pal) for m in range(16)]
+        self._brick = _make_brick(self._pal)
         self._question = [_make_question(f) for f in range(4)]
         self._used = _make_used()
         self._pipes = {tid: _make_pipe(tid) for tid in
                        (T.PIPE_TL, T.PIPE_TR, T.PIPE_BL, T.PIPE_BR)}
         self._spike = _make_spike()
+        self._door = _make_door()
+        self._switch_plates = {False: _make_switch_plate(False),
+                               True: _make_switch_plate(True)}
+        self._plates = {False: _make_plate(False), True: _make_plate(True)}
+        self._lava = [_make_lava(f) for f in range(2)]
+        self._spiker = [_make_spiker(f) for f in range(2)]
+        self._shards = [_make_shard(f) for f in range(2)]
         self._coins = [_make_coin(f) for f in range(4)]
+        self._powerups = {(kind, f): _make_powerup(kind, f)
+                          for kind in POWERUP_COLORS for f in range(2)}
+        self._attacks = {(kind, f): _make_attack(kind, f)
+                         for kind in FORM_COLORS for f in range(2)}
         self._checkpoints = {False: _make_checkpoint(False),
                              True: _make_checkpoint(True)}
         self._goal = _make_goal_gate()
         self._platform = _make_platform_seg()
         self._projectiles = [_make_projectile(i * 5) for i in range(3)]
-        self._sky = _make_sky()
+        self._sky = _make_sky(self._pal)
         self._hills_far = _make_hills(
-            240, 62, (16, 7, 4), (94, 150, 152), (130, 188, 178))
+            240, 62, (16, 7, 4),
+            self._pal["hills_far_body"], self._pal["hills_far_crest"])
         self._hills_near = _make_hills(
-            320, 72, (22, 9, 5), (56, 138, 74), (98, 180, 98))
-        self._clouds = _make_clouds()
+            320, 72, (22, 9, 5),
+            self._pal["hills_near_body"], self._pal["hills_near_crest"])
+        self._clouds = _make_clouds(self._pal)
         self._flip = {}
+        self._zone_factories = {}
+
+    def for_zone(self, zone):
+        """Themed factory for a zone (4b). Zone 0 returns SELF — the legacy
+        palette IS zone 0, so identity is guaranteed by construction."""
+        if zone <= 0:
+            return self
+        fac = self._zone_factories.get(zone)
+        if fac is None:
+            merged = dict(DEFAULT_PAL)
+            merged.update(ZONES[zone]["palette"] or {})
+            fac = AssetFactory(pal=merged)
+            self._zone_factories[zone] = fac
+        return fac
 
     # ------------------------------------------------------ tiles/objects
     def terrain(self, mask):
@@ -663,8 +929,32 @@ class AssetFactory:
     def spike(self):
         return self._spike
 
+    def door(self):
+        return self._door
+
+    def switch_plate(self, active):
+        return self._switch_plates[bool(active)]
+
+    def plate(self, active):
+        return self._plates[bool(active)]
+
+    def lava(self, frame):
+        return self._lava[frame % 2]
+
+    def spiker(self, frame):
+        return self._spiker[frame % 2]
+
+    def shard(self, frame):
+        return self._shards[frame % 2]
+
     def coin(self, frame):
         return self._coins[frame % 4]
+
+    def powerup(self, kind, frame):
+        return self._powerups[(kind, frame % 2)]
+
+    def attack_frame(self, kind, frame):
+        return self._attacks[(kind, frame % 2)]
 
     def checkpoint(self, active):
         return self._checkpoints[bool(active)]
@@ -725,6 +1015,14 @@ class AssetFactory:
             key = (kind, "patrol" if enemy.on_ground else "air", 0)
         elif kind == "chaser" and st == "chase":
             key = (kind, "chase", (enemy.anim_t // 8) % 2)
+        elif kind == "charger":
+            if getattr(enemy, "windup", 0) > 0 or enemy.state == "attack":
+                key = (kind, "attack", (enemy.anim_t // 6) % 2)
+            else:
+                key = (kind, "patrol", (enemy.anim_t // 8) % 2)
+        elif kind == "needler":
+            attack = getattr(enemy, "flash", 0) > 0
+            key = (kind, "attack" if attack else "patrol", 0)
         else:
             key = (kind, "patrol", (enemy.anim_t // 8) % 2)
         img = ENEMY_FRAMES.get(key)

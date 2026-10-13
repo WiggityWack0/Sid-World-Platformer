@@ -10,6 +10,26 @@ class Camera:
         self.y = 0.0
         self.max_x = max(0, level_w - VIEW_W)
         self.max_y = max(0, level_h - VIEW_H)
+        self.shake_dx = 0                # visual-only view offset (Game.fx)
+        self.shake_dy = 0
+
+    def set_shake(self, dx, dy):
+        """Apply a visual shake offset; gameplay math keeps using x/y.
+
+        Clamped away from level edges so shaking never reveals the void
+        beyond the world bounds.
+        """
+        dx, dy = int(dx), int(dy)
+        if self.x <= 0.0:
+            dx = max(0, dx)
+        elif self.x >= self.max_x:
+            dx = min(0, dx)
+        if self.y <= 0.0:
+            dy = max(0, dy)
+        elif self.y >= self.max_y:
+            dy = min(0, dy)
+        self.shake_dx = dx
+        self.shake_dy = dy
 
     def snap_to(self, target):
         """Jump instantly (used on spawn/respawn)."""
@@ -39,11 +59,11 @@ class Camera:
 
     @property
     def ix(self):
-        return int(self.x)
+        return int(self.x) + self.shake_dx
 
     @property
     def iy(self):
-        return int(self.y)
+        return int(self.y) + self.shake_dy
 
     def apply(self, x, y):
         return x - self.ix, y - self.iy

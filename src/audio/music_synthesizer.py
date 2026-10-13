@@ -135,12 +135,86 @@ def track_game_over():
     ], fade_out=0.35)
 
 
+def track_level_c():
+    """Ember Caves (4b): slow A-minor warm loop — ORIGINAL."""
+    lead = [
+        (0, "A4", 4), (4, "C5", 4), (8, "E5", 6), (14, "D5", 2),
+        (16, "C5", 4), (20, "E4", 4), (24, "A4", 8),
+        (32, "G4", 4), (36, "A4", 4), (40, "C5", 6), (46, "B4", 2),
+        (48, "A4", 8), (56, "E4", 4), (60, "G4", 4),
+    ]
+    bass = _bar_roots(["A2", "A2", "F2", "E2"])
+    return _render(104, 4, [
+        ("triangle", 0.38, lead),
+        ("sine", 0.46, bass),
+    ])
+
+
+def track_level_d():
+    """Frost Peaks (4b): airy D-minor high loop — ORIGINAL."""
+    lead = [
+        (0, "D5", 4), (4, "F5", 4), (8, "A5", 6), (14, "G5", 2),
+        (16, "F5", 4), (20, "D5", 4), (24, "E5", 8),
+        (32, "G5", 4), (36, "F5", 4), (40, "D5", 6), (46, "C5", 2),
+        (48, "D5", 8), (56, "A4", 4), (60, "C5", 4),
+    ]
+    bass = _bar_roots(["D2", "D2", "A2", "A2"])
+    return _render(116, 4, [
+        ("sine", 0.40, lead),
+        ("triangle", 0.42, bass),
+    ])
+
+
+def track_level_e():
+    """Storm Keep (4b): urgent A-minor drive — ORIGINAL."""
+    lead = [
+        (0, "A4", 2), (2, "A4", 2), (4, "C5", 2), (6, "E5", 2),
+        (8, "D5", 4), (12, "C5", 2), (14, "A4", 2),
+        (16, "G4", 2), (18, "G4", 2), (20, "B4", 2), (22, "D5", 2),
+        (24, "C5", 4), (28, "B4", 2), (30, "G4", 2),
+        (32, "A4", 2), (34, "A4", 2), (36, "C5", 2), (38, "E5", 2),
+        (40, "F5", 4), (44, "E5", 4),
+        (48, "E5", 4), (52, "D5", 4), (56, "C5", 4), (60, "B4", 4),
+    ]
+    bass = _bar_roots(["A2", "G2", "F2", "E2"], hits=(0, 3, 6, 8, 11, 14),
+                      dur=1)
+    return _render(162, 4, [
+        ("square", 0.32, lead),
+        ("triangle", 0.44, bass),
+    ])
+
+
+def track_boss():
+    """Boss theme (5b): urgent A-minor drive with off-beat accents —
+    ORIGINAL, composed on the shared render pipeline."""
+    lead = [
+        (0, "A4", 2), (2, "A4", 2), (4, "A4", 2), (6, "C5", 2),
+        (8, "B4", 4), (12, "A4", 2), (14, "G4", 2),
+        (16, "A4", 2), (18, "A4", 2), (20, "A4", 2), (22, "E5", 2),
+        (24, "D5", 4), (28, "C5", 2), (30, "B4", 2),
+        (32, "F5", 4), (36, "E5", 4), (40, "D5", 4), (44, "C5", 4),
+        (48, "B4", 2), (50, "C5", 2), (52, "D5", 2), (54, "E5", 2),
+        (56, "A5", 8),
+    ]
+    bass = _bar_roots(["A2", "A2", "F2", "E2"], hits=(0, 3, 6, 8, 11, 14),
+                      dur=1)
+    return _render(172, 4, [
+        ("square", 0.34, lead),
+        ("triangle", 0.46, bass),
+    ])
+
+
 MUSIC_BUILDERS = {
     "title": track_title,
     "level_a": track_level_a,
     "level_b": track_level_b,
+    "level_c": track_level_c,
+    "level_d": track_level_d,
+    "level_e": track_level_e,
+    "boss": track_boss,
     "clear": track_clear,
     "game_over": track_game_over,
 }
 
-LOOPING_MUSIC = {"title", "level_a", "level_b"}
+LOOPING_MUSIC = {"title", "level_a", "level_b",
+                 "level_c", "level_d", "level_e", "boss"}

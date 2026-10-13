@@ -17,10 +17,13 @@ PIPE_TR = 6      # pipe lip, right half
 PIPE_BL = 7      # pipe body, left half
 PIPE_BR = 8      # pipe body, right half
 SPIKE = 9        # hazard, NOT solid (sits on the floor below)
+DOOR = 10        # closed door slab (solid); level toggles EMPTY when open
+LAVA = 11        # lethal surface; NEVER solid (worst-case hazard, §8)
 
 SOLID_IDS = frozenset({SOLID, BRICK, QUESTION, USED,
-                       PIPE_TL, PIPE_TR, PIPE_BL, PIPE_BR})
-HAZARD_IDS = frozenset({SPIKE})
+                       PIPE_TL, PIPE_TR, PIPE_BL, PIPE_BR, DOOR})
+HAZARD_IDS = frozenset({SPIKE, LAVA})
+LETHAL_IDS = frozenset({LAVA})    # instant death (spikes only hurt)
 PIPE_IDS = frozenset({PIPE_TL, PIPE_TR, PIPE_BL, PIPE_BR})
 
 

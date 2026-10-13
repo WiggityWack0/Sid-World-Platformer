@@ -44,6 +44,13 @@ class Player:
         self.cut_done = False
         self.crouching = False
         self.invuln = 0
+        self.max_hearts = config.HEARTS_START
+        self.hearts = self.max_hearts
+        self.active_powerup = None       # "star" | "speed" | "jump" | None
+        self.powerup_timer = 0
+        self.form = None                 # None (Sid) | fire | ice | lightning
+        self.forms_unlocked = list(config.FORMS)
+        self.attack_cooldown = 0
         self.dead = False
         self.death_timer = 0
         self.warp_freeze = 0
@@ -69,6 +76,67 @@ class Player:
     def cy(self):
         return self.y + self.h / 2
 
+    # ------------------------------------------------------- power-ups (2b)
+    @property
+    def star_active(self):
+        return self.active_powerup == "star"
+
+    @property
+    def max_run(self):
+        m = (config.POWERUP_SPEED_MULT
+             if self.active_powerup == "speed" else 1.0)
+        return config.MAX_RUN * m
+
+    @property
+    def max_walk(self):
+        m = (config.POWERUP_SPEED_MULT
+             if self.active_powerup == "speed" else 1.0)
+        return config.MAX_WALK * m
+
+    @property
+    def jump_velocity(self):
+        m = (config.POWERUP_JUMP_MULT
+             if self.active_powerup == "jump" else 1.0)
+        return config.JUMP_VELOCITY * m
+
+    @property
+    def gravity(self):
+        m = (config.POWERUP_JUMP_GRAV_MULT
+             if self.active_powerup == "jump" else 1.0)
+        return config.GRAVITY * m
+
+    @property
+    def powerup_frac(self):
+        """0..1 HUD bar fill for the active timed power-up."""
+        if self.active_powerup is None:
+            return 0.0
+        return self.powerup_timer / config.POWERUP_DURATION
+
+    def apply_powerup(self, kind):
+        """Apply a pickup. Returns True for timed power-ups.
+
+        Heart containers apply immediately (max HP +1 up to HEARTS_MAX,
+        refill); the timed kinds set active_powerup + timer.
+        """
+        if kind == "heart":
+            if self.max_hearts < config.HEARTS_MAX:
+                self.max_hearts += 1
+            self.hearts = self.max_hearts
+            return False
+        self.active_powerup = kind
+        self.powerup_timer = config.POWERUP_DURATION
+        return True
+
+    # -------------------------------------------------------- forms (2c)
+    def cycle_form(self):
+        """F (D2): None -> each unlocked form -> None. Offensive only."""
+        order = [None] + [f for f in config.FORMS if f in self.forms_unlocked]
+        if self.form not in order:
+            self.form = None
+            return self.form
+        self.form = order[(order.index(self.form) + 1) % len(order)]
+        return self.form
+
     def queue_jump(self):
         self.buffer = config.JUMP_BUFFER_FRAMES
 
@@ -84,12 +152,34 @@ class Player:
         self.crouching = False
         self.h = self.H
 
+    def damage(self, source_x):
+        """Lose one heart of damage (D1). Returns True if the hit applied.
+
+        Blocked while dead or within i-frames; knocks the player away from
+        source_x; at zero hearts the normal death flow takes over.
+        """
+        if self.dead or self.invuln > 0:
+            return False
+        self.hearts -= 1
+        self.invuln = config.HURT_INVULN
+        if self.hearts <= 0:
+            self.die("hp")
+            return True
+        self.vx = config.HURT_KNOCKBACK_X * (1 if self.cx >= source_x else -1)
+        self.vy = config.HURT_KNOCKBACK_Y
+        return True
+
     def respawn_at(self, x, y):
         self.x, self.y = float(x), float(y)
         self.vx = self.vy = 0.0
         self.dead = False
         self.death_timer = 0
         self.invuln = config.RESPAWN_INVULN
+        self.hearts = self.max_hearts
+        self.active_powerup = None
+        self.powerup_timer = 0
+        self.form = None
+        self.attack_cooldown = 0
         self.crouching = False
         self.h = self.H
         self.on_ground = False
@@ -130,6 +220,14 @@ class Player:
             self.state = DEAD
             return events
 
+        if self.powerup_timer > 0:
+            self.powerup_timer -= 1
+            if self.powerup_timer == 0:
+                self.active_powerup = None
+
+        if self.attack_cooldown > 0:
+            self.attack_cooldown -= 1
+
         if self.warp_freeze > 0:
             self.warp_freeze -= 1
             return events
@@ -155,7 +253,7 @@ class Player:
         # -------------------------------------------------- horizontal move
         direction = 0 if self.crouching else (
             (1 if inp.right else 0) - (1 if inp.left else 0))
-        target = config.MAX_RUN if inp.run else config.MAX_WALK
+        target = self.max_run if inp.run else self.max_walk
         accel = config.RUN_ACCEL if inp.run else config.WALK_ACCEL
 
         if direction != 0:
@@ -182,7 +280,7 @@ class Player:
             self.coyote -= 1
 
         if self.buffer > 0 and self.coyote > 0 and not self.crouching:
-            self.vy = config.JUMP_VELOCITY
+            self.vy = self.jump_velocity
             self.jumped = True
             self.cut_done = False
             self.buffer = 0
@@ -194,7 +292,7 @@ class Player:
             self.cut_done = True
 
         # --------------------------------------------------------- integrate
-        self.vy = physics.clamp_velocity(self.vy + config.GRAVITY)
+        self.vy = physics.clamp_velocity(self.vy + self.gravity)
 
         new_x, hit = physics.move_x(
             self.x, self.y, self.w, self.h, self.vx, level)
@@ -254,4 +352,4 @@ class Player:
         if self.invuln > 0 and not self.dead and (tick // 3) % 2 == 0:
             return                                   # i-frame flicker
         frame = assets.player_frame(self.state, self.anim_t, self.facing)
-        surf.blit(frame, (int(self.x) - 2 - cam.x, int(self.y) - cam.y))
+        surf.blit(frame, (int(self.x) - 2 - cam.ix, int(self.y) - cam.iy))

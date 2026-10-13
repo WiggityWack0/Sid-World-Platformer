@@ -10,8 +10,9 @@ from src.states.base import State
 class VictoryState(State):
     name = "victory"
 
-    def on_enter(self, **kwargs):
+    def on_enter(self, new_best=False, **kwargs):
         self.t = 0
+        self.new_best = new_best
 
     def handle_event(self, event):
         if event.type != pygame.KEYDOWN or event.key == pygame.K_m:
@@ -44,6 +45,13 @@ class VictoryState(State):
                             (255, 255, 255), hud.mid_font)
             hud.text_center(surf, VIEW_W // 2, 136,
                             f"COINS x{run.coins:02d}   LIVES x{run.lives}")
+            stats = g.progress.get("play_stats", {})            # 6b
+            hud.text_center(surf, VIEW_W // 2, 158,
+                            f"BOSSES DEFEATED {stats.get('bosses_defeated', 0)}"
+                            f"/4")
+        if self.new_best and (self.t // 15) % 2 == 0:          # 6b
+            hud.text_center(surf, VIEW_W // 2, 180, "NEW BEST!",
+                            (255, 240, 120), hud.mid_font)
         if (self.t // 30) % 2 == 0:
             hud.text_center(surf, VIEW_W // 2, 190,
                             "PRESS ENTER FOR TITLE",

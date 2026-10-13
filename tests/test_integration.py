@@ -10,6 +10,30 @@ def press(state, key):
     state.handle_event(pygame.event.Event(pygame.KEYDOWN, key=key, mod=0))
 
 
+def _collect_shards(state):
+    """Objectives (3c): the goal locks until `required` are in.
+    These flow tests PRE-COLLECT shards before touching the goal — they
+    exercise level/goal progression, not shard collection itself
+    (semantic update recorded in Session 12's Progress Log)."""
+    lvl = state.level
+    for k in lvl.key_shards:
+        k.collected = True
+    lvl.shards_collected = len(lvl.key_shards)
+
+
+def _defeat_boss(state):
+    """Bosses (5c, recorded semantic update): zone-final levels now spawn
+    a boss that locks the goal. The full-run flow test beats it for real
+    via the HP-pool damage route, then the defeat sequence unlocks."""
+    for e in list(state.enemies.enemies):
+        if getattr(e, "is_boss", False):
+            if hasattr(e, "exposed"):
+                e.exposed = True           # golem: open the core (5c)
+            e.take_damage(e.hp)
+    for _ in range(120):
+        state.update()
+
+
 def run_updates(game, n, draw_every=0):
     for i in range(n):
         game.state.update()
@@ -49,6 +73,7 @@ def test_goal_touch_clears_and_advances(pygame_ready):
     game = Game(seed=42, max_frames=None)
     state = _start_playing(game)
     run_updates(game, 90, draw_every=30)
+    _collect_shards(state)
     goal = state.level.goal
     state.player.x = float(goal.rect.x)
     state.player.y = float(goal.rect.y)
@@ -74,6 +99,8 @@ def test_full_run_reaches_victory(pygame_ready):
         assert game.state_name == "playing"
         run_updates(game, 60, draw_every=0)
         state = game.state
+        _collect_shards(state)
+        _defeat_boss(state)                      # zone-finals have a boss
         goal = state.level.goal
         state.player.x = float(goal.rect.x)
         state.player.y = float(goal.rect.y)

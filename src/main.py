@@ -25,7 +25,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     from src.game import Game
-    game = Game(seed=args.seed, max_frames=args.frames)
+    game = Game(seed=args.seed, max_frames=args.frames, transitions=True)
     game.run_loop()
 
 

@@ -22,11 +22,69 @@ LEVEL_H_TILES = 18                # 288 px -> some vertical camera travel
 GROUND_ROW = 14                   # default surface row (solid begins here)
 MIN_FLOOR_ROW = 11                # highest ground may climb
 MAX_FLOOR_ROW = 15                # lowest ground may sink
-START_LEN_SCREENS = 2             # level 1 is ~2 screens wide
-LEN_GROWTH = 1                    # +1 screen per further level
-MAX_LEVELS_PER_RUN = 5
-LEVELS_PER_RUN = 5              # levels per play-through
+START_LEN_SCREENS = 2             # zone level 1 is ~2 screens wide
+LEN_GROWTH = 1                    # +1 screen per zone level (resets/zone)
 TILES_PER_SCREEN = VIEW_W // TILE # 25
+
+# ------------------------------------------------------------------- zones
+LEVELS_PER_ZONE = 5
+LEVELS_PER_RUN = LEVELS_PER_ZONE * 4        # 20 levels (4 zones x 5)
+
+ZONES = (
+    {"name": "Green Hills", "music_a": "level_a", "music_b": "level_b",
+     "ambient": "leaves", "palette": None,   # None = legacy palette (identity)
+     "primer": "MASTER THE JUMP"},   # zone-0 = identity (6c)
+    {"name": "Ember Caves", "music_a": "level_c", "music_b": "level_c",
+     "ambient": "embers", "primer": "WATCH THE CEILING", "palette": {
+         "sky_top": (40, 16, 28), "sky_bottom": (140, 60, 30),
+         "cloud": (120, 80, 90), "cloud_dk": (90, 60, 70),
+         "hills_far_body": (60, 30, 40), "hills_far_crest": (90, 50, 50),
+         "hills_near_body": (90, 44, 36), "hills_near_crest": (130, 70, 50),
+         "dirt": (70, 46, 40), "dirt_dk": (50, 32, 28), "dirt_lt": (95, 64, 52),
+         "grass": (200, 90, 40), "grass_dk": (150, 60, 30),
+         "grass_lt": (230, 140, 70),
+         "brick": (140, 60, 50), "brick_dk": (100, 40, 34)}},
+    {"name": "Frost Peaks", "music_a": "level_d", "music_b": "level_d",
+     "ambient": "snow", "primer": "SPACE YOUR JUMPS", "palette": {
+         "sky_top": (150, 190, 235), "sky_bottom": (225, 240, 252),
+         "cloud": (250, 252, 255), "cloud_dk": (220, 230, 245),
+         "hills_far_body": (140, 170, 200), "hills_far_crest": (180, 205, 228),
+         "hills_near_body": (100, 140, 190), "hills_near_crest": (160, 195, 225),
+         "dirt": (110, 140, 175), "dirt_dk": (80, 105, 135),
+         "dirt_lt": (150, 180, 210),
+         "grass": (225, 240, 250), "grass_dk": (190, 215, 235),
+         "grass_lt": (245, 250, 255),
+         "brick": (130, 150, 180), "brick_dk": (95, 115, 145)}},
+    {"name": "Storm Keep", "music_a": "level_e", "music_b": "level_e",
+     "ambient": "rain", "primer": "EVERYTHING COMBINED", "palette": {
+         "sky_top": (52, 52, 74), "sky_bottom": (110, 105, 135),
+         "cloud": (130, 130, 150), "cloud_dk": (100, 100, 120),
+         "hills_far_body": (60, 60, 80), "hills_far_crest": (85, 85, 105),
+         "hills_near_body": (70, 80, 70), "hills_near_crest": (100, 115, 100),
+         "dirt": (80, 72, 64), "dirt_dk": (58, 50, 44), "dirt_lt": (104, 94, 84),
+         "grass": (110, 140, 90), "grass_dk": (80, 105, 65),
+         "grass_lt": (145, 175, 120),
+         "brick": (105, 90, 100), "brick_dk": (78, 64, 74)}},
+)  # palettes themed in 4b; zone 0 uses the legacy palette for identity
+
+
+def zone_of(level_index):
+    """Zone derived FROM level_index (§8.8) — never a free parameter."""
+    return max(0, min(len(ZONES) - 1, level_index // LEVELS_PER_ZONE))
+
+
+def zone_level_of(level_index):
+    return max(0, level_index % LEVELS_PER_ZONE)
+
+
+def difficulty_for(level_index):
+    """Linear 0->1 across the full 20-level run (Phase 4a)."""
+    return min(1.0, level_index / max(1, LEVELS_PER_RUN - 1))
+
+
+def level_length_screens(zone_level):
+    """Per-zone length: resets each zone (§10 4a; recorded semantic change)."""
+    return START_LEN_SCREENS + zone_level * LEN_GROWTH
 
 # --------------------------------------------------------- player physics
 GRAVITY = 0.55
@@ -64,11 +122,24 @@ CAMERA_PAN_FRAC = 0.60        # SMW: pan once player passes 60% of view
 CAMERA_V_DEADZONE = 40
 BG_PARALLAX = (0.15, 0.35, 0.6)   # sky/far, hills, bushes rates
 
+# ---------------------------------------------------------------- effects
+PARTICLE_CAP = 400            # hard cap; oldest recycled when full
+SHAKE_DECAY = 0.03            # trauma lost per tick (~0.55 s from full)
+SHAKE_MAGNITUDE = 8.0         # px at full trauma (before clamp)
+SHAKE_MAX_OFFSET = 6          # hard clamp on shake px
+SHAKE_DEATH = 0.7             # trauma added on player death
+FLOATER_CAP = 32
+FLOATER_LIFE = 48             # ticks a floater stays visible
+FLOATER_RISE = 0.8            # px/tick upward drift
+RUN_DUST_INTERVAL = 5         # ticks between run dust puffs
+
 # -------------------------------------------------------------- game rules
 START_LIVES = 3
 START_TIME = 400
 TIME_INTERVAL_FRAMES = 24     # one timer unit per 24 ticks
 COINS_PER_LIFE = 100
+# scoring ladder (2d-audited): coin 100 < stomp 200 < kick 300 <
+# form kill 400 = star kill 400 < boss 5000 (Phase 5)
 COIN_SCORE = 100
 STOMP_SCORE = 200
 KICK_SCORE = 300
@@ -76,6 +147,40 @@ BREAK_SCORE = 50
 TIME_BONUS_PER_UNIT = 50
 COIN_CLEAR_BONUS = 50
 RESPAWN_INVULN = 90           # i-frames (flicker) after respawn
+HEARTS_START = 3              # D1: hearts base (max raised by containers)
+HEARTS_MAX = 6                # D1: hard cap on max hearts
+HURT_INVULN = 90              # i-frames after taking damage
+HURT_KNOCKBACK_X = 3.0        # px/tick away from the damage source
+HURT_KNOCKBACK_Y = -5.0       # upward pop on being hurt
+HURT_TRAUMA = 0.3             # screen shake added on damage
+
+# ----------------------------------------------------------- power-ups (2b)
+POWERUP_DURATION = 600        # ticks a timed power-up lasts (~10 s)
+POWERUP_KINDS = ("star", "speed", "jump", "heart")
+POWERUP_HEART_CHANCE = 12     # 1-in-N of placed power-ups is a heart container
+POWERUP_SPEED_MULT = 1.25     # speed boost: max run/walk multiplier
+POWERUP_JUMP_MULT = 1.15      # jump enhance: takeoff velocity multiplier
+POWERUP_JUMP_GRAV_MULT = 0.85  # jump enhance: floatier arc
+STAR_KILL_SCORE = 400         # side-contact kill while star is active
+
+# --------------------------------------------------- forms & attack (2c)
+FORMS = ("fire", "ice", "lightning")
+ATTACK_COOLDOWN = 30          # ticks between C presses
+FIREBALL_SPEED = 6.0
+ICE_SHARD_SPEED = 4.5
+FIREBALL_LIFE = 90            # ticks a fired projectile lives
+ICE_FREEZE_TICKS = 180        # how long an ice shard locks an enemy
+LIGHTNING_RADIUS = 80         # px (Chebyshev box) from the player
+LIGHTNING_MAX_TARGETS = 3
+FORM_KILL_SCORE = 400         # score for a form kill (provisional; 2d audits)
+
+# ------------------------------------------------- plates & lava (3b-1)
+TIMED_DOOR_TICKS = 300        # window a timed door stays open (~5 s)
+
+# ------------------------------------------------- objectives (3c)
+SHARDS_PLACED = 3             # shards dropped per generated level
+SHARDS_REQUIRED = 2           # "collect K of N" goal-lock rule
+SHARD_SCORE = 500
 DEATH_ANIM_FRAMES = 70
 STOMP_TOLERANCE = 10          # px below enemy top still counts as stomp
 ACTIVATION_FRAC = 1.5         # enemies activate within 1.5 screens
@@ -103,11 +208,60 @@ FLYER_AMP_Y = 26
 FLYER_AMP_X = 48
 FLYER_W = 0.035
 
+# ------------------------------------------------- new enemy types (5a)
+SHIELDKIN_SPEED = 0.9
+BOMBER_SPEED = 0.7
+BOMBER_COOLDOWN = 140
+BOMBER_RANGE = 190
+BOMBER_ARC_TOL = 120           # |dy| band where the bomber will lob
+BOMB_GRAV = 0.22
+BOMB_VY0 = -4.6
+BOMB_LIFE = 150
+BOMB_BURST = 22                # ticks of AoE burst after detonation
+WALLCRAWLER_SPEED = 1.0
+WALLCRAWLER_CLIMB = 1.1
+WALLCRAWLER_DROP_DX = 36       # |dx| under which it drops from the ceiling
+CHARGER_PATROL = 0.8
+CHARGER_WINDUP = 34            # telegraph ticks before the dash
+CHARGER_DASH_SPEED = 4.6
+CHARGER_DASH_TICKS = 46
+CHARGER_RANGE = 170
+CHARGER_ACQUIRE_DY = 70
+NEEDLER_COOLDOWN = 150
+NEEDLER_RANGE = 260
+NEEDLER_VY_TOL = 90
+NEEDLER_SHOT_SPEED = 3.2
+NEEDLER_LEAD = 0.85            # how much of the target's velocity is led
+
+# ------------------------------------------------------ boss framework (5b)
+ARENA_COLS = 16                # width of the carved boss arena tail
+BOSS_BANNER_TICKS = 120        # WARNING banner duration on first activation
+
+# ------------------------------------------------------ concrete bosses (5c)
+BOULDER_HP = 6
+BOULDER_SLAM_CYCLE = 130       # idle ticks between slams (minus phase)
+BOULDER_ROCK_VY = -5.2
+GOLEM_HP = 8
+GOLEM_EXPOSE_TICKS = 220       # core stays exposed after a switch press
+OWL_HP = 6
+OWL_HOVER_RISE = 70            # px above its spawn floor the owl hovers
+OWL_DIVE_SPEED = 5.0
+MONARCH_HP = 9
+MONARCH_VOLLEY_CD = 130        # minus phase scaling
+MONARCH_PUDDLE_TICKS = 360     # lava puddle lifetime (runtime tile edit)
+
 # ------------------------------------------------------------------ audio
 AUDIO_RATE = 44100
 MASTER_VOLUME = 0.8
 MUSIC_VOLUME = 0.45
 SFX_VOLUME = 0.75
+VOLUME_STEP = 0.1               # options-menu adjust step (6a)
+FADE_TICKS = 18                 # state-transition fade length (6b)
+
+# ------------------------------------------- spatial SFX + tutorials (6c)
+SPATIAL_PAN_PX = 160.0          # full stereo pan at +/- this offset
+SPATIAL_RANGE = 480.0           # linear falloff to silence (1.5 screens)
+PRIMER_TICKS = 150              # zone-primer banner duration
 
 # ------------------------------------------------------------------ colors
 SKY_TOP = (92, 148, 250)
@@ -115,6 +269,27 @@ SKY_BOTTOM = (172, 214, 255)
 HUD_TEXT = (255, 255, 255)
 HUD_OUTLINE = (24, 32, 64)
 OVERLAY_DIM = (0, 0, 0, 150)
+FX_DUST = (208, 196, 168)
+FX_SPARK = (255, 236, 132)
+FX_COIN = (255, 212, 96)
+FX_DEBRIS = (168, 96, 56)
+FX_STOMP = (255, 255, 255)
+FX_DEATH_1 = (255, 128, 96)
+FX_DEATH_2 = (255, 224, 128)
+FX_HURT = (255, 96, 96)
+FX_KEY = (120, 230, 255)
+AMBIENT_INTERVAL = 10            # ticks between ambient particles (4b)
+AMBIENT_COLORS = {"leaves": (96, 168, 64), "embers": (255, 140, 40),
+                  "snow": (240, 248, 255), "rain": (150, 185, 235)}
+
+# ---------------------------------------------------- save / progression (4c)
+SAVE_PATH = "save/progress.json"   # project-local (D3); one line to relocate
+SCHEMA_VERSION = 1                 # bumped on breaking schema changes
+POWERUP_COLORS = {"star": (255, 224, 96), "speed": (96, 208, 255),
+                  "jump": (140, 255, 130), "heart": (232, 48, 64)}
+FORM_COLORS = {"fire": (255, 128, 48), "ice": (128, 224, 255),
+               "lightning": (255, 240, 120)}
+FX_ICE_TINT = (120, 200, 255, 90)
 
 # -------------------------------------------------------------------- keys
 # action name -> pygame key constants are mapped in src/inputs.py
@@ -124,6 +299,8 @@ CONTROLS = {
     "down":    ["Down", "S"],
     "jump":    ["Z", "Space"],
     "run":     ["X", "Shift"],
+    "attack":  ["C"],
+    "form":    ["F"],
     "pause":   ["P"],
     "mute":    ["M"],
     "restart": ["R"],
