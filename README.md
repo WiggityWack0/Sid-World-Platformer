@@ -1,9 +1,9 @@
 # Sid's World
 
-A production-style **Super Mario World-style platformer** written in pure
+A  **Super Mario World-style platformer** written in pure
 Python + pygame-ce: **20 procedurally generated levels across 4 themed
 zones**, provably completable, 11 enemy types, 4 bosses, elemental forms,
-power-ups, puzzle mechanics, persistent progress — with **every sprite and
+power-ups, puzzle mechanics, persistent progress â€” with **every sprite and
 every note synthesized at runtime**. One dependency (`pygame-ce`), no
 external asset files.
 
@@ -29,12 +29,12 @@ python run_tests.py                # or: python -m pytest tests -q
   combined). Difficulty rises linearly 0 -> 1.0 across the run; level
   length grows per zone (2 -> 6 screens).
 * **One boss per zone** on a hand-authored arena carved into the level
-  tail: Boulder Brute, Crystal Golem, Warden Owl, Magma Monarch — each a
+  tail: Boulder Brute, Crystal Golem, Warden Owl, Magma Monarch â€” each a
   multi-phase fight with telegraphs, stagger windows, an HP bar, a
   WARNING intro, its own music, and a goal that stays locked until the
   boss falls.
 * **Progression:** unlocks + best scores + settings persist to
-  `save/progress.json` (atomic, schema-versioned, gitignored — see
+  `save/progress.json` (atomic, schema-versioned, gitignored â€” see
   `docs/SAVE_FORMAT.md`). Title menu: New Game / Continue / Level Select /
   Options. Level select shows all 20 nodes with lock state, best scores,
   and boss markers.
@@ -68,7 +68,7 @@ shrink, i-frame flicker on damage/respawn.
   i-frames, HUD heart icons; timed star (invincibility), speed and jump
   power-ups; 100 coins = 1-up.
 * **Elemental forms (D2):** fire (killing fireball), ice (freezing
-  shard), lightning (instant area zap) — offensive only (forms never
+  shard), lightning (instant area zap) â€” offensive only (forms never
   required to finish a level, D6).
 * **Puzzle mechanics:** floor switches + latched doors, pressure plates +
   timed doors (bonus loot only, D5), breakable bricks (bump, form, or
@@ -86,7 +86,7 @@ shrink, i-frame flicker on damage/respawn.
   banner, fade transitions, NEW BEST flags, victory stats incl. bosses
   defeated, spatial SFX (checkpoint/switch/shard/warp pan with distance),
   8 original chiptune tracks (title, A/B, C/D/E zone themes, boss, +
-  jingles) — all compositions original.
+  jingles) â€” all compositions original.
 
 ## How procedural generation works
 
@@ -94,12 +94,12 @@ shrink, i-frame flicker on damage/respawn.
   (flat runs, gaps, stairs, pipe alleys, floating steps, island chains,
   spike trenches, enemy gauntlets, moving-platform bridges, switch/door
   puzzles, lava pits, timed-door bonus rooms, floor-spiker tracks) with a
-  difficulty curve — seeded `random.Random(seed)`, so **same seed +
+  difficulty curve â€” seeded `random.Random(seed)`, so **same seed +
   difficulty + level index produce a byte-identical level**.
 * Every chunk is bounded by the **jump envelope derived from the real
   physics constants** (never hard-coded guesses).
 * The **validator** (`src/level/validator.py`) then *proves*
-  completability with the **base kit only** (D6 — power-ups/forms are
+  completability with the **base kit only** (D6 â€” power-ups/forms are
   never required):
   1. reachability graph over standable tiles,
   2. every jump/fall edge verified by a **per-tick trajectory simulation**
@@ -108,7 +108,7 @@ shrink, i-frame flicker on damage/respawn.
   3. an **augmented BFS** whose state is (cell, pressed switches, shard
      bit-mask) with dominance pruning, plus moving-platform ride edges,
   4. spawn -> goal search; on failure the generator retries (up to 20
-     seeds) and finally falls back to a known-good template — the game
+     seeds) and finally falls back to a known-good template â€” the game
      **never ships an unwinnable level**.
 * **Boss arenas** (zone finals) are carved into the level tail without
   changing the width formula; the proof covers arena *traversal*. Boss
@@ -166,24 +166,24 @@ docs/SAVE_FORMAT.md  save-file documentation
 
 `tests/` holds **557 headless-safe tests** across 23 files:
 
-1. **Generator fuzz** (260 seeds x difficulties, all 20 levels) —
+1. **Generator fuzz** (260 seeds x difficulties, all 20 levels) â€”
    validator-proven completability, entity rules, length bounds,
    determinism self-consistency (no frozen hashes by design).
-2. **Physics** — measured jump envelope, coyote time, buffering,
+2. **Physics** â€” measured jump envelope, coyote time, buffering,
    variable jump, crouch, platform carry.
-3. **Enemies + bosses** — every behavior per type; arena invariants;
+3. **Enemies + bosses** â€” every behavior per type; arena invariants;
    scripted-sim fights that deterministically beat all 4 bosses.
-4. **Combat** — stomp rules, 12-cell form x enemy matrix, Shieldkin
+4. **Combat** â€” stomp rules, 12-cell form x enemy matrix, Shieldkin
    front/back, star/i-frame/lives flows.
-5. **Puzzles/objectives** — switches/doors/plates/timed doors (D5
+5. **Puzzles/objectives** â€” switches/doors/plates/timed doors (D5
    proof), breakables, lava, moving hazards (worst-case bands), key
    shards + goal lock.
-6. **Progress/menus** — save roundtrip + corruption tolerance +
+6. **Progress/menus** â€” save roundtrip + corruption tolerance +
    migrations, unlock rules, pause/options/title/level-select flows,
    transitions, tutorial once-only, spatial-SFX math.
-7. **Integration** — the real game driven headless through every state,
+7. **Integration** â€” the real game driven headless through every state,
    including a full 20-level run that beats each zone boss.
-8. **Audit guards** — D1 constants, pool caps, density growth, fight
+8. **Audit guards** â€” D1 constants, pool caps, density growth, fight
    length windows (Phase 7a).
 
 ## Notes & honest limitations
@@ -194,6 +194,6 @@ docs/SAVE_FORMAT.md  save-file documentation
   stretch goal (D4); the save schema reserves a `current_run` slot.
 * The validator proves *traversal* for boss arenas; boss *defeat* is
   proven by the deterministic fight tests, not by reachability (plan
-  section 8.7 — deliberate, documented).
+  section 8.7 â€” deliberate, documented).
 * Suite runtime ~86 s (557 tests) on the dev machine.
 
