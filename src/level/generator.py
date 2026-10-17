@@ -226,7 +226,9 @@ def chunk_gap(b, rng, diff):
     b.pit(gap)
     b.coins_arc(start, gap, b.floor)
     b.ground(rng.randint(4, 6))
-    if diff > 0.35 and rng.random() < 0.5:
+    # zone-1 teaching walkers: deterministic (no rng) below 0.25 so the
+    # mid/high-difficulty RNG stream and layouts stay byte-identical
+    if diff < 0.25 or (diff > 0.35 and rng.random() < 0.5):
         b.enemy("walker", b.x - 2)
 
 
@@ -335,8 +337,7 @@ def chunk_overhead(b, rng, diff):
         tid = T.QUESTION if rng.random() < 0.5 else T.BRICK
         b.level.tiles.set(start + 2 + i, b.floor - 4, tid)
     b.coins_row(start + 2, bn, b.floor - 6)
-    if diff > 0.25:
-        b.enemy("walker", start + n - 2)
+    b.enemy("walker", start + n - 2)
 
 
 def chunk_moving_bridge(b, rng, diff):
@@ -469,8 +470,10 @@ def chunk_twin_gaps(b, rng, diff):
         b.coins_arc(start, gap, b.floor)
         b.ground(rng.randint(3, 4))
     b.ground(2)
-    if diff > 0.35 and rng.random() < 0.5:
-        kind = pick_enemy_kind(rng, diff, b.idx)
+    # zone-1 teaching walkers: deterministic (no rng) below 0.25 so the
+    # mid/high-difficulty RNG stream and layouts stay byte-identical
+    if diff < 0.25 or (diff > 0.35 and rng.random() < 0.5):
+        kind = "walker" if diff < 0.25 else pick_enemy_kind(rng, diff, b.idx)
         b.enemy(kind, b.x - 2, b.floor - 3 if kind == "flyer" else None)
 
 

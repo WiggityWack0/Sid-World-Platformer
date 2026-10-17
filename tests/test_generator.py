@@ -89,6 +89,26 @@ def test_difficulty_changes_enemy_density():
     assert len(high.enemy_spawns) >= len(low.enemy_spawns)
 
 
+def test_world_one_spawns_walkers():
+    """Zone 1 (idx 0-4, diff 0.0-0.21) places a few basic walkers.
+
+    Teaching-walker bands: gap and twin-gaps chunks below diff 0.25,
+    overhead chunks always (its min diff is 0.15). No advanced kinds may
+    leak into zone 1 (idx 4 may also carry its zone boss).
+    """
+    from src.level.generator import BOSS_KINDS
+    for idx in range(config.LEVELS_PER_ZONE):
+        diff = config.difficulty_for(idx)
+        for seed in range(6):
+            lvl = generate_level(seed * 53 + 9, diff, idx)
+            kinds = [k for k, _, _ in lvl.enemy_spawns]
+            assert kinds.count("walker") >= 1, (
+                f"idx={idx} seed={seed}: no walkers in a world-1 level")
+            assert set(kinds) <= {"walker"} | set(BOSS_KINDS), (
+                f"idx={idx} seed={seed}: advanced enemy leaked into world 1: "
+                f"{sorted(set(kinds))}")
+
+
 @pytest.mark.parametrize("seed", [1, 7, 42, 99])
 def test_ensure_level_always_returns_valid(seed):
     lvl = ensure_level(seed, 0.5, 1)

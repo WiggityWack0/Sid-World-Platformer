@@ -1,9 +1,9 @@
 # Sid's World
 
-A  **Super Mario World-style platformer** written in pure
+A production-style **Super Mario World-style platformer** written in pure
 Python + pygame-ce: **20 procedurally generated levels across 4 themed
 zones**, provably completable, 11 enemy types, 4 bosses, elemental forms,
-power-ups, puzzle mechanics, persistent progress — with **every sprite and
+power-ups, puzzle mechanics, persistent progress � with **every sprite and
 every note synthesized at runtime**. One dependency (`pygame-ce`), no
 external asset files.
 
