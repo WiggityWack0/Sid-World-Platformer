@@ -15,6 +15,15 @@ import pygame  # noqa: E402
 import pytest  # noqa: E402
 
 
+def pytest_configure(config):
+    """Register the Slice 6 test-runtime policy marker (D4)."""
+    config.addinivalue_line(
+        "markers",
+        "slow: long-running fuzz/playtest test; excluded by default "
+        "from run_tests.py fast mode and included by run_tests.py --full",
+    )
+
+
 @pytest.fixture(autouse=True)
 def _isolated_save(tmp_path, monkeypatch):
     """The suite must NEVER touch the real save/ dir (4c, D3 hygiene)."""

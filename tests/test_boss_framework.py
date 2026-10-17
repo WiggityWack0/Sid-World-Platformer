@@ -142,11 +142,11 @@ def test_arena_only_on_zone_finals():
 
 
 def test_arena_width_unchanged():
-    from src.config import LEN_GROWTH, START_LEN_SCREENS, TILE, TILES_PER_SCREEN
+    from src.config import TILES_PER_SCREEN
     lvl = _arena_level()
-    zl = config.zone_level_of(4)
-    assert lvl.tiles.w == (START_LEN_SCREENS + zl * LEN_GROWTH) \
-        * TILES_PER_SCREEN + 18, "arena carve must not change width"
+    assert lvl.tiles.w == config.level_length_screens(
+        config.zone_of(4), config.zone_level_of(4)
+    ) * TILES_PER_SCREEN + 18, "arena carve must not change width"
 
 
 def test_arena_invariants():

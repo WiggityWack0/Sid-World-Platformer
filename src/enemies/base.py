@@ -19,6 +19,8 @@ class Enemy:
     GRAVITY = True
     STOMP_PROOF = False          # spiked enemies hurt on stomp
     CONTACT_HARM = True
+    DEATH_TICKS = 30             # corpse linger window (SI-A; was 26)
+    HIT_FLASH_TICKS = 6          # white recoil flash after a hit (SI-A)
 
     def __init__(self, x, y):
         self.x = float(x)
@@ -33,6 +35,8 @@ class Enemy:
         self.anim_t = 0
         self.wall_hit = 0         # -1/1 from last move_x
         self.frozen = 0           # ice-form ticks remaining (uniform contract)
+        self.hit_flash = 0        # hit-recoil ticks remaining (SI-A)
+        self.hit_scale = 1.0      # recoil squash factor (SI-A)
         self.spawn = (x, y)
 
     # ------------------------------------------------------------ helpers
@@ -56,10 +60,18 @@ class Enemy:
         if self.state == "dying":
             return
         self.state = "dying"
-        self.death_timer = 26
+        self.death_timer = self.DEATH_TICKS
+        self.start_hit_flash()
         if pop:
             self.vy = -4.0
             self.GRAVITY_CORPSE = True
+
+    def start_hit_flash(self, ticks=None):
+        """Recoil flash on taking a hit (SI-A). Lethal blows trigger it
+        via start_dying(); non-lethal reactions (blocks, shell stops) may
+        call it directly for feedback without dying."""
+        self.hit_flash = self.HIT_FLASH_TICKS if ticks is None else ticks
+        self.hit_scale = 0.8
 
     def stomped(self, player=None):
         """Player bounced on top: default death (types may override)."""
@@ -82,10 +94,16 @@ class Enemy:
         self.on_ground = False
         self.facing = -1
         self.frozen = 0
+        self.hit_flash = 0
+        self.hit_scale = 1.0
 
     # ------------------------------------------------------------- update
     def update(self, level, player):
         self.anim_t += 1
+        if self.hit_flash > 0:              # recoil: 0.8 -> 0.9 -> 1.0 scale
+            self.hit_flash -= 1
+            self.hit_scale = (0.8 if self.hit_flash > 4 else
+                              0.9 if self.hit_flash > 2 else 1.0)
         if self.state == "dying":
             self.death_timer -= 1
             if getattr(self, "GRAVITY_CORPSE", False):

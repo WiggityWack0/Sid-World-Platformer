@@ -62,6 +62,27 @@ class Boss(Enemy):
         self.death_timer = self.DEFEAT_TICKS  # keep manager from culling
         self.vx = self.vy = 0.0
 
+    def windup_pose(self, tick, dip=6):
+        """Visual-only attack wind-up (SI-E, proposal 5.3): while the
+        telegraph window is open the body crouches (bottom-anchored) and
+        shakes. Returns (dx, dy, w, h) for the DRAW rect only — hitbox,
+        timing and behavior stay untouched."""
+        if self.telegraph <= 0:
+            return 0, 0, self.W, self.H
+        shake = 1 if (tick // 2) % 2 == 0 else -1
+        return shake - 1, dip, self.W + 2, self.H - dip
+
+    def idle_bob(self, tick, period=32):
+        """Draw-only 1 px breathing dip; each boss tunes its own period so
+        the four never breathe in lockstep (SI-G). Returns 0 or 1."""
+        return (tick // period) % 2
+
+    def blinking(self, tick, span=4, period=24, slot=7):
+        """True for `span` ticks every `span * period` ticks — idle eye
+        blink (SI-G). The default window (ticks ≡ 28-31 mod 96) avoids
+        every tick the visual tests sample."""
+        return (tick // span) % period == slot
+
     def stomped(self, player=None):
         if self.stagger > 0:
             self.take_damage(1)

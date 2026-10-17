@@ -54,6 +54,7 @@ class Spitter(Enemy):
         self.cooldown = 50
         self.shots = []
         self.flash = 0
+        self.windup = 0        # telegraph pose flag (SI-C, visual only)
 
     def think(self, level, player):
         self.vx = 0.0
@@ -66,6 +67,10 @@ class Spitter(Enemy):
         dy = abs(player.cy - self.cy)
         if abs(dx) > 1:
             self.facing = 1 if dx > 0 else -1
+        # visible wind-up while recharging with the player lined up (SI-C)
+        self.windup = int(0 < self.cooldown <= config.SPITTER_WINDUP
+                          and abs(dx) <= config.SPITTER_RANGE
+                          and dy <= config.SPITTER_VY_TOL)
         if (self.cooldown <= 0
                 and abs(dx) <= config.SPITTER_RANGE
                 and dy <= config.SPITTER_VY_TOL):

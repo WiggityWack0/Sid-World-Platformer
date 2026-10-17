@@ -29,7 +29,8 @@ def test_density_grows_within_length_class():
     from src.level.generator import generate_level
 
     def mean_per_screen(idx):
-        screens = config.level_length_screens(config.zone_level_of(idx))
+        screens = config.level_length_screens(
+            config.zone_of(idx), config.zone_level_of(idx))
         total = 0.0
         for seed in range(8):
             lvl = generate_level(seed * 37 + 5, config.difficulty_for(idx),

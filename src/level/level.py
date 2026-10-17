@@ -38,6 +38,9 @@ class Level:
         self.arena_x0 = 0             # first arena column (px-free, tiles)
         self.boss_required = False    # goal stays locked until boss defeat
         self.boss_defeated = False
+        # Informational generator telemetry only. It is deliberately not part
+        # of level hashes, validator reachability, save state, or gameplay.
+        self.chunk_trace = []
 
     # ------------------------------------------------------------ geometry
     @property
