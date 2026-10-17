@@ -14,6 +14,14 @@ class Chaser(Enemy):
         dist = abs(dx)
         if player.dead:
             dist = 9999
+        # gaze locks toward the player before aggro (SI-C, proposal 4.1)
+        rel = dx * self.facing
+        if player.dead or abs(rel) <= 4:
+            self.pupil_dx = 1 if self.state == "chase" else 0
+        elif rel > 0:
+            self.pupil_dx = 2 if self.state == "chase" else 1
+        else:
+            self.pupil_dx = -1
         if self.state == "chase":
             if dist > config.CHASER_DEAGGRO or dy > 96:
                 self.state = "patrol"

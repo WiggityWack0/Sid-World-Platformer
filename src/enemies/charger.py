@@ -17,11 +17,13 @@ class Charger(Enemy):
         super().__init__(x, y)
         self.windup = 0
         self.flash = 0
+        self.horn_glow = 0     # 0 none / 1..3 rising coil (SI-C 4.3)
         self._dash_ticks = 0
         self._level = None
 
     def think(self, level, player):
         self._level = level
+        self.horn_glow = 0
         if self.flash > 0:
             self.flash -= 1
         if self.state == "attack":                       # dashing
@@ -36,6 +38,10 @@ class Charger(Enemy):
             self.vx = 0.0
             self.windup -= 1
             self.flash = 4
+            # horns brighten as the coil completes (SI-C, proposal 4.3)
+            ratio = self.windup / config.CHARGER_WINDUP
+            self.horn_glow = (1 if ratio > 2 / 3
+                              else 2 if ratio > 1 / 3 else 3)
             if self.windup <= 0:
                 self.state = "attack"
                 self._dash_ticks = config.CHARGER_DASH_TICKS

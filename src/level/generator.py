@@ -158,6 +158,12 @@ class Builder:
         self.level.movers.append(m)
         return m
 
+    def mover_y(self, row, length_tiles, span_tiles, speed):
+        m = MovingPlatform(self.x * TILE, row * TILE,
+                           length_tiles * TILE, "y", span_tiles * TILE, speed)
+        self.level.movers.append(m)
+        return m
+
     def flat(self, n, decor=True, rng=None):
         start = self.x
         if decor and rng is not None and n >= 4:
@@ -439,17 +445,238 @@ def chunk_bonus_cache(b, rng, diff):
     b.coins_row(ax + 1, 2, b.floor - 6)
 
 
+def chunk_rolling_hills(b, rng, diff):
+    """Gentle one-row undulations with coin arcs on the crests."""
+    b.ground(rng.randint(2, 3))
+    steps = 1 if rng.random() < 0.5 else 2
+    for _ in range(steps):
+        b.step_up()
+        b.coins_row(b.x, 2, b.floor - 3)
+        b.ground(2)
+    for _ in range(steps):
+        b.step_down()
+        b.ground(2)
+    b.ground(2)
+
+
+def chunk_twin_gaps(b, rng, diff):
+    """Two short gaps with a safe landing pad between them."""
+    b.ground(2)
+    for _ in range(2):
+        gap = rng.randint(2, 3)
+        start = b.x
+        b.pit(gap)
+        b.coins_arc(start, gap, b.floor)
+        b.ground(rng.randint(3, 4))
+    b.ground(2)
+    if diff > 0.35 and rng.random() < 0.5:
+        kind = pick_enemy_kind(rng, diff, b.idx)
+        b.enemy(kind, b.x - 2, b.floor - 3 if kind == "flyer" else None)
+
+
+def chunk_high_ledge(b, rng, diff):
+    """Floating ledge reached by a short staircase of step platforms."""
+    start = b.x
+    b.ground(3)
+    b.pit(1)
+    b.platform(2, b.floor - 2)
+    b.platform(2, b.floor - 3)
+    b.platform(3, b.floor - 4)
+    b.coins_row(start + 8, 3, b.floor - 6)
+    b.ground(2)
+
+
+def chunk_pipe_trio(b, rng, diff):
+    """Three pipes: a warp pair followed by a tall obstacle pipe."""
+    b.ground(2)
+    warp = b.warp_counter
+    b.warp_counter += 1
+    b.pipe(rng.randint(2, 3), warp)
+    b.ground(rng.randint(3, 4))
+    b.pipe(rng.randint(2, 3), warp)
+    b.ground(rng.randint(3, 4))
+    b.pipe(3, None)
+    b.ground(rng.randint(3, 4))
+
+
+def chunk_spike_trench_pair(b, rng, diff):
+    """Two short spike trenches separated by safe pads."""
+    b.ground(2)
+    for _ in range(2):
+        n = rng.randint(2, 3)
+        start = b.x
+        b.trench(n)
+        b.coins_arc(start, n, b.floor)
+        b.ground(rng.randint(3, 4))
+    if diff > 0.35 and rng.random() < 0.6:
+        kind = pick_enemy_kind(rng, diff, b.idx)
+        b.enemy(kind, b.x - 2, b.floor - 3 if kind == "flyer" else None)
+
+
+def chunk_ambush_steps(b, rng, diff):
+    """Step up to a plateau holding an ambush, then step back down."""
+    b.ground(2)
+    steps = rng.randint(1, 2)
+    for _ in range(steps):
+        b.step_up()
+        b.ground(2)
+    plateau = rng.randint(4, 6)
+    plateau_start = b.x
+    b.ground(plateau)
+    count = 1 + int(diff * 2.0)
+    cols = (plateau_start + 1, plateau_start + 3, plateau_start + 5)
+    for i in range(count):
+        col = cols[i]
+        if col < b.x - 1:
+            kind = pick_enemy_kind(rng, diff, b.idx)
+            b.enemy(kind, col, b.floor - 3 if kind == "flyer" else None)
+    for _ in range(steps):
+        b.step_down()
+        b.ground(2)
+    b.ground(2)
+
+
+def chunk_gap_triple(b, rng, diff):
+    """Three short gaps with short run-up pads between them."""
+    b.ground(2)
+    for _ in range(3):
+        gap = rng.randint(2, 3)
+        start = b.x
+        b.pit(gap)
+        b.coins_arc(start, gap, b.floor)
+        b.ground(2)
+    b.ground(2)
+
+
+def chunk_lava_island_chain(b, rng, diff):
+    """Lava pool, solid island, lava pool.
+
+    The island is ordinary solid ground. The validator refuses cells above
+    lava because lava is neither solid nor standable, so the only proven
+    route is a real landing on the island.
+    """
+    b.ground(3)
+    for i in range(2):
+        n = rng.randint(3, 4)
+        start = b.x
+        b.lava_pit(n)
+        b.coins_arc(start, n, b.floor)
+        b.ground(3 if i == 0 else 4)
+
+
+def chunk_double_gate(b, rng, diff):
+    """Two latched door walls, each with its switch strictly before it."""
+    b.ground(4)
+    for _ in range(2):
+        sid = f"s{b.x}"
+        did = f"d{b.x}"
+        wall_col = b.x
+        b.door_wall(wall_col, 9, b.floor - 1, did, sid)
+        b.ground(1)
+        b.switch(wall_col - 2, b.floor - 1, sid)
+        b.coins_row(wall_col + 1, 2, b.floor - 3)
+        b.ground(3)
+
+
+def chunk_vertical_bridge(b, rng, diff):
+    """A y-axis moving lift connecting a low shelf to a high shelf.
+
+    The validator already creates conservative ride edges for y-axis movers.
+    This chunk deliberately leaves a one-column lift shaft so those virtual
+    ride edges are present and connected to real standable cells.
+    """
+    b.ground(rng.randint(2, 3))
+    b.step_down(4)
+    lower_floor = b.floor
+    b.ground(rng.randint(3, 4))
+
+    lift_col = b.x
+    upper_floor = max(MIN_FLOOR_ROW, lower_floor - 4)
+    span = lower_floor - upper_floor
+    if span <= 0:
+        b.ground(4)
+        return
+
+    speed = round(0.8 + diff * 0.4 + rng.random() * 0.3, 2)
+    b.mover_y(upper_floor, 3, span, speed)
+    b.pit(1)
+    b.step_up(span)
+    b.ground(rng.randint(3, 4))
+
+
+def chunk_spiker_double(b, rng, diff):
+    """Two floor-spiker tracks separated by safe pads."""
+    b.ground(2)
+    for _ in range(2):
+        track = rng.randint(3, 4)
+        start = b.x
+        b.ground(track + 1)
+        speed = round(0.9 + diff * 0.5 + rng.random() * 0.3, 2)
+        b.level.dynamic_hazards.append(
+            FloorSpiker(start * TILE, b.floor * TILE - 16,
+                        track * TILE - TILE, speed))
+        b.coins_arc(start, track, b.floor)
+        b.ground(2)
+
+
+def _ground_enemy_kind(rng, diff, idx):
+    """pick_enemy_kind() restricted to ground-safe kinds for showcase chunks."""
+    kind = pick_enemy_kind(rng, diff, idx)
+    if kind == "flyer":
+        return "shellback" if diff >= 0.20 else "walker"
+    return kind
+
+
+def _battlement_enemy_kind(rng, diff, idx):
+    """Prefer the intended battlement enemies when their intro gates allow."""
+    if idx >= 5 and diff >= 0.35 and rng.random() < 0.5:
+        return "bomber"
+    if idx >= 3 and diff >= 0.25 and rng.random() < 0.5:
+        return "shieldkin"
+    return _ground_enemy_kind(rng, diff, idx)
+
+
+def chunk_bomb_battlement(b, rng, diff):
+    """Raised step with overhead bricks/coins and ground enemies on top."""
+    b.ground(rng.randint(2, 3))
+    b.step_up()
+    step_len = rng.randint(4, 6)
+    start = b.x
+    b.ground(step_len)
+
+    bn = rng.randint(3, 5)
+    for i in range(bn):
+        tid = T.QUESTION if rng.random() < 0.5 else T.BRICK
+        b.level.tiles.set(start + 1 + i, b.floor - 4, tid)
+    b.coins_row(start + 1, bn, b.floor - 6)
+
+    count = 1 + int(diff * 2.0)
+    cols = (start + 2, start + 4, start + 6)
+    for i in range(count):
+        col = cols[i]
+        if col < start + step_len - 1:
+            b.enemy(_battlement_enemy_kind(rng, diff, b.idx), col)
+
+    b.ground(rng.randint(3, 4))
+    b.step_down()
+    b.ground(2)
+
+
 # (fn, min difficulty, weight, max width in tiles)
+# Slice 3 retunes these weights for pacing: low-difficulty levels are biased
+# toward flat/gap/step teaching chunks, while high-difficulty levels lean on
+# showcase/Tier 2 chunks. `_difficulty_weight()` applies the dynamic part;
+# these table weights are the static baseline.
 CHUNK_TABLE = [
-    (chunk_flat,          0.00, 3.0,  9),
+    (chunk_flat,          0.00, 4.0,  9),
     (chunk_gap,           0.00, 3.0, 15),
-    (chunk_steps_up,      0.00, 2.0, 16),
-    (chunk_steps_down,    0.00, 2.0, 16),
-    (chunk_pipes,         0.10, 2.0, 17),
-    (chunk_platform_steps,0.15, 2.0, 12),
-    (chunk_overhead,      0.15, 2.0,  8),
-    (chunk_enemy_pack,    0.25, 3.0, 10),
-    (chunk_spikes,        0.30, 2.0, 15),
+    (chunk_steps_up,      0.00, 2.5, 16),
+    (chunk_steps_down,    0.00, 2.5, 16),
+    (chunk_pipes,         0.10, 1.5, 17),
+    (chunk_platform_steps,0.15, 1.5, 12),
+    (chunk_overhead,      0.15, 1.5,  8),
+    (chunk_enemy_pack,    0.25, 2.5, 10),
+    (chunk_spikes,        0.30, 1.5, 15),
     (chunk_island_chain,  0.45, 2.0, 27),
     (chunk_moving_bridge, 0.55, 2.0, 19),
     (chunk_door_gate,     0.25, 2.0, 12),
@@ -457,24 +684,87 @@ CHUNK_TABLE = [
     (chunk_lava_crossing, 0.3, 1.5, 14),
     (chunk_bonus_cache,   0.35, 1.0, 12),
     (chunk_floor_spiker,  0.45, 1.5, 14),
+    (chunk_rolling_hills, 0.00, 2.0, 14),
+    (chunk_twin_gaps,     0.20, 1.5, 18),
+    (chunk_high_ledge,    0.20, 1.5, 14),
+    (chunk_pipe_trio,     0.15, 1.5, 20),
+    (chunk_spike_trench_pair, 0.35, 1.5, 16),
+    (chunk_ambush_steps,  0.30, 1.5, 18),
+    (chunk_gap_triple,     0.50, 2.0, 22),
+    (chunk_lava_island_chain, 0.55, 2.0, 24),
+    (chunk_double_gate,    0.45, 2.0, 22),
+    (chunk_vertical_bridge, 0.60, 2.0, 20),
+    (chunk_spiker_double,  0.60, 2.0, 20),
+    (chunk_bomb_battlement, 0.65, 2.0, 18),
 ]
 
-def _choose_chunk(rng, diff, last_fn, remaining):
-    """Weighted random chunk choice restricted by remaining budget."""
-    options = []
-    for fn, min_diff, weight, max_w in CHUNK_TABLE:
-        if max_w > remaining and fn is not chunk_flat:
-            continue
-        if diff < min_diff and fn is not chunk_flat:
-            continue
-        if fn is chunk_flat and remaining < 4:
-            continue
-        if fn is last_fn:
-            weight *= 0.35                      # avoid repetition streaks
-        options.append((fn, weight))
+MAX_CHUNK_USES = 3
+
+TEACHING_CHUNKS = {
+    chunk_flat,
+    chunk_gap,
+    chunk_steps_up,
+    chunk_steps_down,
+    chunk_rolling_hills,
+}
+
+BREATHER_CHUNKS = {
+    chunk_flat,
+    chunk_rolling_hills,
+}
+
+BREATHER_FALLBACKS = (
+    chunk_flat,
+    chunk_rolling_hills,
+    chunk_steps_up,
+    chunk_steps_down,
+    chunk_gap,
+)
+
+HARD_SHOWCASE_CHUNKS = {
+    fn for fn, min_diff, _weight, _max_w in CHUNK_TABLE if min_diff >= 0.45
+}
+
+
+def _difficulty_weight(fn, weight, diff):
+    """Bias selection toward teaching early and showcase later."""
+    if fn in TEACHING_CHUNKS:
+        weight *= max(0.25, 1.0 - 0.75 * diff)
+    elif fn in HARD_SHOWCASE_CHUNKS:
+        weight *= 0.75 + 0.75 * diff
+    return weight
+
+
+def _used_weight(fn, weight, used):
+    """Strong anti-fatigue penalty for chunks already used in this level."""
+    if used >= MAX_CHUNK_USES:
+        return 0.0
+    if used == 2:
+        return weight * 0.15
+    if used == 1:
+        return weight * 0.45
+    return weight
+
+
+def _chunk_available(fn, min_diff, max_w, diff, remaining, used):
+    """Common availability rules for normal and forced chunk selection."""
+    if used >= MAX_CHUNK_USES:
+        return False
+    if max_w > remaining and fn is not chunk_flat:
+        return False
+    if diff < min_diff and fn is not chunk_flat:
+        return False
+    if fn is chunk_flat and remaining < 4:
+        return False
+    return True
+
+
+def _weighted_choice(rng, options):
     if not options:
         return None
-    total = sum(w for _, w in options)
+    total = sum(weight for _, weight in options)
+    if total <= 0:
+        return None
     pick = rng.random() * total
     acc = 0.0
     for fn, weight in options:
@@ -482,6 +772,40 @@ def _choose_chunk(rng, diff, last_fn, remaining):
         if pick <= acc:
             return fn
     return options[-1][0]
+
+
+def _choose_chunk(rng, diff, last_fn, remaining, used_counts=None):
+    """Weighted random chunk choice restricted by budget and used counts."""
+    used_counts = used_counts or {}
+    options = []
+    for fn, min_diff, weight, max_w in CHUNK_TABLE:
+        used = used_counts.get(fn, 0)
+        if not _chunk_available(fn, min_diff, max_w, diff, remaining, used):
+            continue
+        weight = _difficulty_weight(fn, weight, diff)
+        weight = _used_weight(fn, weight, used)
+        if fn is last_fn:
+            weight *= 0.35                      # avoid repetition streaks
+        if weight > 0:
+            options.append((fn, weight))
+    return _weighted_choice(rng, options)
+
+
+def _choose_breather(rng, diff, last_fn, remaining, used_counts):
+    """Force a low-intensity breather after a long non-flat run."""
+    if remaining >= 4 and used_counts.get(chunk_flat, 0) < MAX_CHUNK_USES:
+        return chunk_flat
+
+    for fn in BREATHER_FALLBACKS:
+        entry = next((row for row in CHUNK_TABLE if row[0] is fn), None)
+        if entry is None:
+            continue
+        _fn, min_diff, _weight, max_w = entry
+        used = used_counts.get(fn, 0)
+        if _chunk_available(fn, min_diff, max_w, diff, remaining, used):
+            return fn
+    return None
+
 
 
 def _sanitize(b, goal_tx):
@@ -637,24 +961,77 @@ def _place_shards(b, seed, diff):
     level.required = min(config.SHARDS_REQUIRED, placed)
 
 
+def _checkpoint_targets(w, goal_tx, screens):
+    """Checkpoint ratios: 2 for short levels, 3 for long levels (Slice 5 D3)."""
+    if screens > 10:
+        ratios = (0.25, 0.50, 0.75)
+    else:
+        ratios = (0.38, 0.70)
+
+    targets = []
+    for ratio in ratios:
+        col = int(w * ratio)
+        if col < 8 or col >= goal_tx - 5:
+            continue
+        targets.append(col)
+    return targets
+
+
+def _checkpoint_candidate_cols(start, goal_tx, used_cols, min_gap,
+                              local_radius=16):
+    """Yield plausible checkpoint columns, preferring near the requested target."""
+    def ok(c):
+        if c in used_cols:
+            return False
+        if min_gap and any(abs(c - u) < min_gap for u in used_cols):
+            return False
+        return True
+
+    local_end = min(start + local_radius, goal_tx - 3)
+    for c in range(start, local_end):
+        if ok(c):
+            yield c
+
+    for c in range(start, goal_tx - 3):
+        if ok(c):
+            yield c
+
+    for c in range(start - 1, 7, -1):
+        if ok(c):
+            yield c
+
+
+def _find_checkpoint_cell(level, start, goal_tx, used_cols, min_gap):
+    """Find a safe standable checkpoint cell near `start`."""
+    for c in _checkpoint_candidate_cols(start, goal_tx, used_cols, min_gap):
+        for r in range(3, level.tiles.h - 2):
+            if (not level.tiles.solid_at(c, r)
+                    and not level.tiles.solid_at(c, r - 1)
+                    and level.tiles.solid_at(c, r + 1)
+                    and not level.tiles.hazard_at(c, r)
+                    and not level.tiles.hazard_at(c, r - 1)):
+                return c, r
+    return None
+
+
 def _place_checkpoints(b, goal_tx):
     level = b.level
     w = level.tiles.w
-    for col in (int(w * 0.38), int(w * 0.70)):
-        if col >= goal_tx - 5:
+    screens = config.level_length_screens(
+        config.zone_of(b.idx), config.zone_level_of(b.idx))
+
+    used_cols = []
+    for target in _checkpoint_targets(w, goal_tx, screens):
+        cell = _find_checkpoint_cell(level, target, goal_tx, used_cols, 8)
+        if cell is None:
+            cell = _find_checkpoint_cell(level, target, goal_tx, used_cols, 0)
+        if cell is None:
             continue
-        for c in range(col, min(col + 8, goal_tx - 3)):
-            for r in range(3, level.tiles.h - 2):
-                if (not level.tiles.solid_at(c, r)
-                        and not level.tiles.solid_at(c, r - 1)
-                        and level.tiles.solid_at(c, r + 1)
-                        and not level.tiles.hazard_at(c, r)
-                        and not level.tiles.hazard_at(c, r - 1)):
-                    level.checkpoints.append(Checkpoint(c, r))
-                    break
-            else:
-                continue
-            break
+        c, r = cell
+        level.checkpoints.append(Checkpoint(c, r))
+        used_cols.append(c)
+
+    level.checkpoints.sort(key=lambda cp: cp.tx)
 
 
 def append_arena(b):
@@ -749,11 +1126,85 @@ def _place_boss(b, level_index):
     lvl.boss_required = True
 
 
+def _fill_remaining(b):
+    """Last-resort safe filler when the normal chunk pool is exhausted.
+
+    This is intentionally not part of `CHUNK_TABLE` and is not traced as a
+    gameplay chunk: its only job is to avoid leaving a huge flat runway when a
+    long level has legitimately used up its allowed chunk budget. It cycles a
+    few conservative, validator-safe terrain variations instead of repeating one
+    pattern.
+    """
+    pattern = 0
+    while b.x < b.w - 24:
+        remaining = b.w - 24 - b.x
+        if remaining <= 6:
+            b.ground(remaining)
+            break
+
+        # Keep the filler at the base floor so the tiny patterns below remain
+        # predictable for the validator and player.
+        while b.floor < GROUND_ROW:
+            b.step_down()
+            b.ground(2)
+        while b.floor > GROUND_ROW:
+            b.step_up()
+            b.ground(2)
+
+        remaining = b.w - 24 - b.x
+        if remaining <= 6:
+            b.ground(remaining)
+            break
+
+        # Near the reserved goal run-in, put compact safe features close to the
+        # end so the filler does not hand off into another long flat runway.
+        if remaining <= 16:
+            if remaining >= 10:
+                b.ground(2)
+                b.pit(2)
+                b.ground(2)
+                b.pit(2)
+                b.ground(remaining - 8)
+            else:
+                b.ground(2)
+                b.pit(2)
+                b.ground(remaining - 4)
+            break
+
+        kind = pattern % 4
+        pattern += 1
+        if kind == 0:
+            # Short safe ditch.
+            b.ground(2)
+            b.pit(2)
+            b.ground(3)
+        elif kind == 1:
+            # One-tile mound.
+            b.ground(2)
+            b.step_up()
+            b.ground(2)
+            b.step_down()
+            b.ground(3)
+        elif kind == 2:
+            # Walk-under overhead bump.
+            b.ground(2)
+            b.floating(b.x, 3, b.floor - 3)
+            b.ground(4)
+        else:
+            # One-tile safe trench.
+            b.ground(2)
+            b.step_down()
+            b.ground(2)
+            b.step_up()
+            b.ground(3)
+
+
 def generate_level(seed, difficulty, level_index=0):
     """Build a deterministic level. Same inputs -> byte-identical level."""
     rng = random.Random(seed)
     diff = max(0.0, min(1.0, float(difficulty)))
     target = (config.level_length_screens(
+        config.zone_of(level_index),
         config.zone_level_of(level_index)) * config.TILES_PER_SCREEN)
     w = target + 18
     b = Builder(w, LEVEL_H_TILES, level_index)
@@ -765,13 +1216,34 @@ def generate_level(seed, difficulty, level_index=0):
 
     # --- stitch chunks ---------------------------------------------------
     last_fn = None
+    used_counts = {}
+    chunk_trace = []
+    non_flat_streak = 0
+    breathers_exhausted = False
     while b.x < w - 24:
         remaining = (w - 24) - b.x
-        fn = _choose_chunk(rng, diff, last_fn, remaining)
+        fn = None
+        if non_flat_streak >= 5 and not breathers_exhausted:
+            fn = _choose_breather(rng, diff, last_fn, remaining, used_counts)
+            if fn is None:
+                # Slice 8: no gentle breather is left, but the level is not
+                # finished. Continue with normal chunk selection instead of
+                # leaving a huge flat filler tail.
+                breathers_exhausted = True
         if fn is None:
+            fn = _choose_chunk(rng, diff, last_fn, remaining, used_counts)
+        if fn is None:
+            _fill_remaining(b)
             break
         fn(b, rng, diff)
         last_fn = fn
+        used_counts[fn] = used_counts.get(fn, 0) + 1
+        chunk_trace.append(fn.__name__)
+        if fn in BREATHER_CHUNKS:
+            non_flat_streak = 0
+        else:
+            non_flat_streak += 1
+    b.level.chunk_trace = chunk_trace
 
     # --- ramp back to base ground level, then flat run-in to the goal ----
     while b.floor < GROUND_ROW:
@@ -802,6 +1274,7 @@ def generate_level(seed, difficulty, level_index=0):
 def template_level(difficulty=0.5, level_index=0):
     """Known-good hand-authored fallback; guaranteed validator-passing."""
     w = (config.level_length_screens(
+        config.zone_of(level_index),
         config.zone_level_of(level_index)) * config.TILES_PER_SCREEN + 18)
     b = Builder(w, LEVEL_H_TILES, level_index)
     b.ground(8)

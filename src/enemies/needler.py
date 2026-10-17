@@ -57,12 +57,17 @@ class Needler(Enemy):
         self.cooldown = config.NEEDLER_COOLDOWN
         self.shots = []
         self.flash = 0
+        self.barrel_glow = 0   # 0 none / 1 dim / 2 bright (SI-C 4.4)
 
     def think(self, level, player):
         self.vx = 0.0
         self.cooldown -= 1
         if self.flash > 0:
             self.flash -= 1
+        # barrel charges as the next shot readies (SI-C, proposal 4.4)
+        self.barrel_glow = (2 if self.cooldown <= config.NEEDLER_COOLDOWN * 0.25
+                            else 1 if self.cooldown <= config.NEEDLER_COOLDOWN * 0.5
+                            else 0)
         if player.dead:
             return
         dx = player.cx - self.cx

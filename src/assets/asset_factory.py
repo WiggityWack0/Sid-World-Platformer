@@ -387,6 +387,8 @@ def _build_player_frames():
 
 # ----------------------------------------------------------------- enemies
 ENEMY_FRAMES = {}
+ENEMY_HIT_FRAMES = {}           # ((kind, state, idx), phase) -> recoil frame
+WALK_KINDS = ("walker", "shellback", "shieldkin", "bomber", "wallcrawler")
 WALKER_BODY = (168, 116, 70)
 WALKER_DK = (120, 76, 44)
 CHASER_RED = (214, 66, 58)
@@ -407,20 +409,28 @@ def _eyes(s, y, lx=4, rx=9, pupil_dx=1):
 
 def _mk_walker(phase):
     s = make_surface(16, 16)
-    pygame.draw.ellipse(s, WALKER_BODY, pygame.Rect(1, 1, 14, 11))
-    pygame.draw.ellipse(s, WALKER_DK, pygame.Rect(1, 7, 14, 5))
-    pygame.draw.ellipse(s, OUTLINE, pygame.Rect(1, 1, 14, 11), 1)
-    _eyes(s, 4, 4, 9, 1)
-    s.fill(OUTLINE, pygame.Rect(4, 3, 3, 1))          # angry brows
-    s.fill(OUTLINE, pygame.Rect(9, 3, 3, 1))
-    s.set_at((6, 2), OUTLINE)
-    s.set_at((9, 2), OUTLINE)
-    if phase == 0:
-        s.fill(WALKER_DK, pygame.Rect(2, 12, 5, 3))
+    lean = (-1, 0, 1, 0)[phase % 4]              # sway with the stride (SI-B)
+    bx = 1 + lean
+    pygame.draw.ellipse(s, WALKER_BODY, pygame.Rect(bx, 1, 14, 11))
+    pygame.draw.ellipse(s, WALKER_DK, pygame.Rect(bx, 7, 14, 5))
+    pygame.draw.ellipse(s, OUTLINE, pygame.Rect(bx, 1, 14, 11), 1)
+    _eyes(s, 4 + lean, 4, 9, 1)
+    s.fill(OUTLINE, pygame.Rect(4 + lean, 3, 3, 1))      # angry brows
+    s.fill(OUTLINE, pygame.Rect(9 + lean, 3, 3, 1))
+    s.set_at((6 + lean, 2), OUTLINE)
+    s.set_at((9 + lean, 2), OUTLINE)
+    if phase == 0:                               # left foot forward
+        s.fill(WALKER_DK, pygame.Rect(1, 12, 5, 3))
         s.fill(WALKER_DK, pygame.Rect(9, 13, 5, 2))
-    else:
+    elif phase == 1:                             # mid-stride
         s.fill(WALKER_DK, pygame.Rect(3, 13, 5, 2))
-        s.fill(WALKER_DK, pygame.Rect(8, 12, 5, 3))
+        s.fill(WALKER_DK, pygame.Rect(8, 13, 5, 2))
+    elif phase == 2:                             # right foot forward
+        s.fill(WALKER_DK, pygame.Rect(1, 13, 5, 2))
+        s.fill(WALKER_DK, pygame.Rect(10, 12, 5, 3))
+    else:                                        # mid-stride, shifted
+        s.fill(WALKER_DK, pygame.Rect(2, 13, 5, 2))
+        s.fill(WALKER_DK, pygame.Rect(9, 13, 5, 2))
     s.fill(OUTLINE, pygame.Rect(2, 15, 12, 1))
     return s
 
@@ -435,12 +445,12 @@ def _mk_walker_squash():
     return s
 
 
-def _mk_chaser(phase, chase=False):
+def _mk_chaser(phase, chase=False, pupil=1):
     s = make_surface(16, 16)
     pygame.draw.ellipse(s, CHASER_RED, pygame.Rect(1, 3, 14, 10))
     pygame.draw.ellipse(s, CHASER_DK, pygame.Rect(1, 9, 14, 4))
     pygame.draw.ellipse(s, OUTLINE, pygame.Rect(1, 3, 14, 10), 1)
-    _eyes(s, 6, 4, 9, 2 if chase else 1)
+    _eyes(s, 6, 4, 9, pupil)                            # gaze (SI-C 4.1)
     for sx in (3, 7, 11):                             # spiky crest
         pygame.draw.polygon(s, CHASER_DK, [
             (sx, 4), (sx + 2, 0), (sx + 4, 4)])
@@ -466,7 +476,7 @@ def _mk_chaser_squash():
     return s
 
 
-def _mk_shell(phase=0):
+def _mk_shell(phase=0, glow=False):
     s = make_surface(16, 16)
     pygame.draw.ellipse(s, SHELL_GREEN, pygame.Rect(1, 3, 14, 12))
     pygame.draw.ellipse(s, SHELL_DK, pygame.Rect(3, 5, 10, 8))
@@ -477,23 +487,35 @@ def _mk_shell(phase=0):
     if phase:                                       # spin highlight
         hx = (phase * 4) % 12 + 2
         s.fill((226, 255, 200), pygame.Rect(hx, 6, 2, 4))
+    if glow:                                        # slide danger glow (4.2)
+        pygame.draw.ellipse(s, (226, 255, 200, 150),
+                            pygame.Rect(0, 2, 16, 14), 1)
+        s.set_at((1, 8), (240, 255, 220))
+        s.set_at((14, 8), (240, 255, 220))
     return s
 
 
 def _mk_shellback(phase):
     s = make_surface(16, 16)
-    s.fill(SHELL_GREEN, pygame.Rect(9, 0, 6, 6))     # head, upper-right
-    s.fill((196, 226, 140), pygame.Rect(10, 2, 4, 3))
-    pygame.draw.ellipse(s, OUTLINE, pygame.Rect(9, 0, 6, 6), 1)
-    s.fill(WHITE, pygame.Rect(12, 1, 2, 2))
-    s.set_at((13, 2), OUTLINE)
+    bob = (0, 0, 1, 0)[phase % 4]                # head bob with the stride
+    s.fill(SHELL_GREEN, pygame.Rect(9, bob, 6, 6))     # head, upper-right
+    s.fill((196, 226, 140), pygame.Rect(10, 2 + bob, 4, 3))
+    pygame.draw.ellipse(s, OUTLINE, pygame.Rect(9, bob, 6, 6), 1)
+    s.fill(WHITE, pygame.Rect(12, 1 + bob, 2, 2))
+    s.set_at((13, 2 + bob), OUTLINE)
     s.blit(_mk_shell(0), (0, 4))
-    if phase == 0:
-        s.fill(SHELL_RIM, pygame.Rect(2, 14, 4, 2))
+    if phase == 0:                               # left foot forward
+        s.fill(SHELL_RIM, pygame.Rect(1, 14, 4, 2))
         s.fill(SHELL_RIM, pygame.Rect(10, 14, 4, 2))
-    else:
+    elif phase == 1:                             # mid-stride
         s.fill(SHELL_RIM, pygame.Rect(3, 14, 4, 2))
-        s.fill(SHELL_RIM, pygame.Rect(9, 13, 4, 2))
+        s.fill(SHELL_RIM, pygame.Rect(9, 14, 4, 2))
+    elif phase == 2:                             # right foot forward
+        s.fill(SHELL_RIM, pygame.Rect(2, 14, 4, 2))
+        s.fill(SHELL_RIM, pygame.Rect(11, 14, 4, 2))
+    else:                                        # mid-stride, stepping
+        s.fill(SHELL_RIM, pygame.Rect(2, 14, 4, 2))
+        s.fill(SHELL_RIM, pygame.Rect(10, 13, 4, 2))
     return s
 
 
@@ -508,6 +530,7 @@ def _mk_shellback_squash():
 def _mk_flyer(phase):
     s = make_surface(16, 16)
     wing_up = phase == 0
+    bob = 0 if wing_up else 1                    # body drops on downstroke
     wing_col = (198, 152, 232)
     if wing_up:
         pygame.draw.polygon(s, wing_col, [(4, 8), (0, 2), (7, 6)])
@@ -515,28 +538,35 @@ def _mk_flyer(phase):
     else:
         pygame.draw.polygon(s, wing_col, [(4, 7), (0, 13), (7, 9)])
         pygame.draw.polygon(s, wing_col, [(12, 7), (16, 13), (9, 9)])
-    pygame.draw.ellipse(s, (150, 88, 200), pygame.Rect(4, 4, 8, 9))
-    pygame.draw.ellipse(s, (102, 54, 148), pygame.Rect(4, 9, 8, 4))
-    pygame.draw.ellipse(s, OUTLINE, pygame.Rect(4, 4, 8, 9), 1)
-    _eyes(s, 6, 5, 9, 1)
-    s.fill(WHITE, pygame.Rect(6, 11, 1, 2))
-    s.fill(WHITE, pygame.Rect(9, 11, 1, 2))
+    pygame.draw.ellipse(s, (150, 88, 200), pygame.Rect(4, 4 + bob, 8, 9))
+    pygame.draw.ellipse(s, (102, 54, 148), pygame.Rect(4, 9 + bob, 8, 4))
+    pygame.draw.ellipse(s, OUTLINE, pygame.Rect(4, 4 + bob, 8, 9), 1)
+    _eyes(s, 6, 5 + bob, 9, 1)
+    s.fill(WHITE, pygame.Rect(6, 11 + bob, 1, 2))
+    s.fill(WHITE, pygame.Rect(9, 11 + bob, 1, 2))
     return s
 
 
-def _mk_spitter(open_mouth=False):
+def _mk_spitter(pose=0):
+    """pose: 0 patrol / 1 windup / 2 execute / 3 recovery (SI-C 1.3)."""
     s = make_surface(16, 20)
     pygame.draw.rect(s, (130, 138, 154), pygame.Rect(2, 6, 12, 13))
     pygame.draw.rect(s, (84, 90, 106), pygame.Rect(2, 15, 12, 4))
     pygame.draw.rect(s, OUTLINE, pygame.Rect(2, 6, 12, 13), 1)
-    pygame.draw.rect(s, (130, 138, 154), pygame.Rect(4, 2, 10, 5))
-    pygame.draw.rect(s, OUTLINE, pygame.Rect(4, 2, 10, 5), 1)
-    pygame.draw.rect(s, (84, 90, 106), pygame.Rect(11, 3, 3, 3))
-    if open_mouth:
-        pygame.draw.circle(s, (255, 150, 40), (13, 4), 2)
-        pygame.draw.circle(s, OUTLINE, (13, 4), 2, 1)
-    else:
-        pygame.draw.rect(s, OUTLINE, pygame.Rect(12, 3, 2, 3))
+    hx = (4, 3, 5, 4)[pose]                     # head tilt / lunge
+    pygame.draw.rect(s, (130, 138, 154), pygame.Rect(hx, 2, 10, 5))
+    pygame.draw.rect(s, OUTLINE, pygame.Rect(hx, 2, 10, 5), 1)
+    pygame.draw.rect(s, (84, 90, 106), pygame.Rect(hx + 7, 3, 3, 3))
+    if pose == 1:                               # windup: mouth shut tight
+        pygame.draw.rect(s, OUTLINE, pygame.Rect(hx + 8, 3, 2, 1))
+    elif pose == 2:                             # execute: wide mouth + tongue
+        pygame.draw.circle(s, (255, 150, 40), (hx + 9, 4), 2)
+        pygame.draw.circle(s, OUTLINE, (hx + 9, 4), 2, 1)
+        pygame.draw.rect(s, (255, 190, 90), pygame.Rect(hx + 10, 4, 2, 1))
+    elif pose == 3:                             # recovery: half-open mouth
+        pygame.draw.rect(s, OUTLINE, pygame.Rect(hx + 7, 3, 3, 2))
+    else:                                       # patrol: closed mouth
+        pygame.draw.rect(s, OUTLINE, pygame.Rect(hx + 8, 3, 2, 3))
     for px in (4, 8, 12):
         s.set_at((px, 12), (180, 188, 202))
         s.set_at((px, 17), (60, 66, 80))
@@ -575,106 +605,478 @@ def _mk_squash(body):
 def _mk_shieldkin(phase):
     s = make_surface(16, 16)
     body = (104, 112, 130)
-    pygame.draw.ellipse(s, body, pygame.Rect(1, 3, 11, 11))
-    pygame.draw.ellipse(s, OUTLINE, pygame.Rect(1, 3, 11, 11), 1)
+    lean = (-1, 0, 1, 0)[phase % 4]              # sway with the stride (SI-B)
+    pygame.draw.ellipse(s, body, pygame.Rect(1 + lean, 3, 11, 11))
+    pygame.draw.ellipse(s, OUTLINE, pygame.Rect(1 + lean, 3, 11, 11), 1)
     # shield plate on the front (right) side; flipped with facing
-    pygame.draw.rect(s, (168, 176, 196), pygame.Rect(11, 2, 4, 12))
-    pygame.draw.rect(s, OUTLINE, pygame.Rect(11, 2, 4, 12), 1)
-    _eyes(s, 4, 6, 8, 2)
-    for px in (4, 8):
-        s.fill((72, 78, 94), pygame.Rect(px, 13, 3, 3 if phase else 2))
+    pygame.draw.rect(s, (168, 176, 196), pygame.Rect(11 + lean, 2, 4, 12))
+    pygame.draw.rect(s, OUTLINE, pygame.Rect(11 + lean, 2, 4, 12), 1)
+    _eyes(s, 4 + lean, 6, 8, 2)
+    if phase == 0:                               # left foot forward
+        s.fill((72, 78, 94), pygame.Rect(3, 13, 3, 3))
+        s.fill((72, 78, 94), pygame.Rect(9, 13, 3, 2))
+    elif phase == 1:                             # mid-stride
+        s.fill((72, 78, 94), pygame.Rect(4, 13, 3, 2))
+        s.fill((72, 78, 94), pygame.Rect(8, 13, 3, 2))
+    elif phase == 2:                             # right foot forward
+        s.fill((72, 78, 94), pygame.Rect(3, 13, 3, 2))
+        s.fill((72, 78, 94), pygame.Rect(10, 13, 3, 3))
+    else:                                        # mid-stride, shifted
+        s.fill((72, 78, 94), pygame.Rect(4, 13, 3, 2))
+        s.fill((72, 78, 94), pygame.Rect(9, 13, 3, 2))
     return s
 
 
 def _mk_bomber(phase):
     s = make_surface(16, 16)
     body = (72, 76, 92)
-    pygame.draw.circle(s, body, (8, 10), 6)
-    pygame.draw.circle(s, OUTLINE, (8, 10), 6, 1)
-    # fuse with a spark
-    s.fill((120, 100, 80), pygame.Rect(9, 2, 2, 3))
-    spark = (255, 210, 90) if phase == 0 else (255, 150, 60)
-    s.set_at((10, 1), spark)
-    s.set_at((11, 2), spark)
-    _eyes(s, 5, 9, 4, 1)
+    bob = (0, -1, 0, -1)[phase % 4]              # hop with the stride (SI-B)
+    pygame.draw.circle(s, body, (8, 10 + bob), 6)
+    pygame.draw.circle(s, OUTLINE, (8, 10 + bob), 6, 1)
+    # fuse with a spark (pulses across the 4-frame cycle)
+    s.fill((120, 100, 80), pygame.Rect(9, 2 + bob, 2, 3))
+    spark = ((255, 210, 90), (255, 210, 90),
+             (255, 150, 60), (255, 150, 60))[phase % 4]
+    s.set_at((10, 1 + bob), spark)
+    s.set_at((11, 2 + bob), spark)
+    _eyes(s, 5, 9 + bob, 4, 1)
     return s
 
 
-def _mk_wallcrawler(phase):
+def _mk_wallcrawler(phase, grip=False):
     s = make_surface(16, 16)
     body = (128, 92, 168)
     pygame.draw.ellipse(s, body, pygame.Rect(1, 5, 14, 8))
     pygame.draw.ellipse(s, OUTLINE, pygame.Rect(1, 5, 14, 8), 1)
-    # legs on TOP (it crawls ceilings/walls)
-    for px in (2, 6, 10, 13):
+    # legs on TOP (it crawls ceilings/walls): 4-phase stepping cycle
+    stride = ((2, 6, 10, 13),                    # full contact
+              (3, 6, 11, 13),                    # outer legs reach
+              (2, 7, 10, 12),                    # inner legs reach
+              (3, 7, 11, 12))[phase % 4]         # gathered mid-step
+    for px in stride:
         s.fill(body, pygame.Rect(px, 2, 2, 3))
         s.set_at((px, 2), OUTLINE)
+    if grip:                                     # claw marks (SI-C 4.6)
+        for cx in (4, 10):
+            s.fill((64, 42, 90), pygame.Rect(cx, 1, 2, 1))
+            s.set_at((cx, 0), (64, 42, 90))
     _eyes(s, 4, 9, 8, 1)
     return s
 
 
-def _mk_charger(phase, attack=False):
+def _mk_charger(phase, pose=0):
+    """pose: 0 patrol / 1..3 wind-up horn glow / 4 execute (SI-C 4.3)."""
     s = make_surface(16, 16)
-    body = (188, 108, 64) if not attack else (214, 128, 74)
-    pygame.draw.ellipse(s, body, pygame.Rect(1, 4, 13, 10))
-    pygame.draw.ellipse(s, OUTLINE, pygame.Rect(1, 4, 13, 10), 1)
-    # horns on the front (right) — flipped with facing
-    s.fill((238, 226, 200), pygame.Rect(12, 3, 3, 2))
-    s.fill((238, 226, 200), pygame.Rect(12, 12, 3, 2))
+    body = (188, 108, 64) if pose != 4 else (214, 128, 74)
+    dip = 1 if 1 <= pose <= 3 else 0             # head dips while coiling
+    pygame.draw.ellipse(s, body, pygame.Rect(1, 4 + dip, 13, 10 - dip))
+    pygame.draw.ellipse(s, OUTLINE, pygame.Rect(1, 4 + dip, 13, 10 - dip), 1)
+    # horns on the front (right); brightness rises through the wind-up
+    horn = ((238, 226, 200), (150, 142, 128), (196, 184, 160),
+            (255, 250, 235), (255, 255, 245))[pose]
+    s.fill(horn, pygame.Rect(12, 3 + dip, 3, 2))
+    s.fill(horn, pygame.Rect(12, 12, 3, 2))
     _eyes(s, 8, 7, 3, 1)
-    if attack:
-        for px in (2, 5, 8, 11):                 # dash speed lines
+    if pose == 4:                               # execute: dash speed lines
+        for px in (2, 5, 8, 11):                # dash speed lines
             s.set_at((px, 15), (255, 220, 150))
     return s
 
 
-def _mk_needler(phase, attack=False):
+def _mk_needler(pose=0):
+    """pose: 0 patrol / 1 dim aim / 2 bright aim / 3 execute / 4 recovery
+    (SI-C 1.3 + 4.4: barrel tint rises with the charge telegraph)."""
     s = make_surface(16, 16)
     body = (96, 150, 120)
-    pygame.draw.rect(s, body, pygame.Rect(3, 6, 10, 9))
-    pygame.draw.rect(s, OUTLINE, pygame.Rect(3, 6, 10, 9), 1)
-    # barrel on the front (right)
-    pygame.draw.rect(s, body, pygame.Rect(11, 8, 5, 3))
-    pygame.draw.rect(s, OUTLINE, pygame.Rect(11, 8, 5, 3), 1)
-    if attack:
+    barrel = (body, (141, 148, 104), (200, 150, 80),
+              (255, 200, 90), (160, 154, 108))[pose]
+    crouch = 1 if pose in (1, 2) else 0          # coils down while aiming
+    pygame.draw.rect(s, body, pygame.Rect(3, 6 + crouch, 10, 9 - crouch))
+    pygame.draw.rect(s, OUTLINE, pygame.Rect(3, 6 + crouch, 10, 9 - crouch),
+                     1)
+    if pose == 3:                               # execute: barrel extends
+        pygame.draw.rect(s, barrel, pygame.Rect(10, 8, 6, 3))
+        pygame.draw.rect(s, OUTLINE, pygame.Rect(10, 8, 6, 3), 1)
         pygame.draw.circle(s, (255, 240, 140), (16, 9), 2)
+    else:
+        bx = 10 if crouch else 11               # barrel pulls back when aiming
+        pygame.draw.rect(s, barrel, pygame.Rect(bx, 8, 5, 3))
+        pygame.draw.rect(s, OUTLINE, pygame.Rect(bx, 8, 5, 3), 1)
+        if pose == 4:                           # recovery: spent-powder spark
+            s.set_at((15, 9), (255, 200, 120))
     _eyes(s, 5, 9, 3, 1)
     return s
 
 
+# Hit-recoil post-processing (SI-A, proposal 2.2): (tint, alpha, num, den).
+# Phase 0: white at 60% alpha, squashed to 0.8x. Phase 1: pale yellow at
+# 40%, 0.9x. Phase 2: normal colors at full scale.
+_HIT_FLASH = (
+    ((255, 255, 255), 153, 4, 5),
+    ((255, 255, 200), 102, 9, 10),
+    ((255, 255, 255), 0, 1, 1),
+)
+
+
+def _apply_hit_flash(source, phase):
+    """Return a hit-flash variant of `source`, composited once at startup
+    so the runtime cost is a dict lookup. Per-pixel alpha is preserved."""
+    tint, alpha, num, den = _HIT_FLASH[phase]
+    if (num, den) != (1, 1):
+        w, h = source.get_width(), source.get_height()
+        source = pygame.transform.scale(
+            source, (max(1, w * num // den), max(1, h * num // den)))
+    w, h = source.get_width(), source.get_height()
+    s = make_surface(w, h)
+    if alpha <= 0:
+        s.blit(source, (0, 0))
+        return s
+    tr, tg, tb = tint
+    f = alpha / 255.0
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = source.get_at((x, y))
+            if a:
+                s.set_at((x, y), (int(r + (tr - r) * f),
+                                   int(g + (tg - g) * f),
+                                   int(b + (tb - b) * f), a))
+    return s
+
+
+# Death-sequence composition (SI-D, proposal 3.1): (scale_num, scale_den,
+# alpha) per phase — topple, curl, squash, fade, remnant. Canvas size is
+# preserved (content shrinks toward the ground) so blits never shift.
+_DEATH = (
+    (1, 1, 255),
+    (17, 20, 204),      # 0.85x, 80%
+    (7, 10, 153),       # 0.7x, 60%
+    (1, 2, 102),        # 0.5x, 40%
+    (3, 10, 51),        # 0.3x, 20%
+)
+
+
+def _apply_death(source, phase):
+    """Return one frame of the 5-frame death sequence, composed once at
+    startup. Phase 0 topples (12 deg tilt); later phases squash toward the
+    bottom edge and fade out (proposal 3.1)."""
+    num, den, alpha = _DEATH[phase]
+    w, h = source.get_width(), source.get_height()
+    img = source
+    if phase == 0:
+        img = pygame.transform.rotate(source, 12)
+        img = pygame.transform.scale(img, (w, h))   # keep the canvas size
+    if (num, den) != (1, 1):
+        img = pygame.transform.scale(
+            img, (max(1, w * num // den), max(1, h * num // den)))
+    s = make_surface(w, h)
+    s.blit(img, ((w - img.get_width()) // 2,
+                 h - img.get_height()))             # anchored to the ground
+    if alpha < 255:
+        f = alpha / 255.0
+        for y in range(h):
+            for x in range(w):
+                r, g, b, a = s.get_at((x, y))
+                if a:
+                    s.set_at((x, y), (r, g, b, int(a * f)))
+    return s
+
+
+# ---------------------------------------------- boss defeat sequence (SI-E)
+# Proposal 3.2: 10 INLINE frames across DEFEAT_TICKS = 90 —
+#   stagger 0-2 (18 ticks): reel + shake, X eyes, flavor detail ramps
+#   crumble 3-6 (36 ticks): 4 body segments drift apart, fade 100% -> 30%
+#   explode 7-9 (36 ticks): shrink to nothing, white flash, flavor burst
+# Bosses never use ENEMY_FRAMES (their HP/phases are per-instance), so
+# this composes at draw time. Flavors follow the proposal's boss-specific
+# death table; duck-typed attrs: DEATH_SHAPE / DEATH_FLAVOR / DEATH_BODY.
+_BOSS_DEATH_FLAVOR = {
+    # stagger detail / crumble grit / burst inner / burst outer
+    "dust":  ((58, 40, 26), (150, 128, 100), (208, 188, 158), (116, 96, 72)),
+    "prism": ((255, 255, 255), (168, 228, 248), (255, 255, 255),
+              (140, 220, 255)),
+    "wind":  ((206, 220, 238), (186, 202, 224), (238, 247, 255),
+              (172, 198, 228)),
+    "ember": ((255, 176, 64), (255, 118, 44), (255, 214, 118), (255, 96, 36)),
+}
+_BOSS_DEATH_CRUMBLE_ALPHA = (255, 191, 128, 77)   # 100 / 75 / 50 / 30 %
+_BOSS_DEATH_SHRINK = ((7, 10), (1, 2), (3, 10))   # explode frames 7-9
+
+
+def _boss_death_frame(boss):
+    """Map defeat_timer -> (frame 0..9, progress within that stage)."""
+    total = getattr(boss, "DEFEAT_TICKS", 90)
+    elapsed = max(0, min(total, total - boss.defeat_timer))
+    if elapsed < 18:
+        step = min(2, elapsed // 6)
+        return step, step
+    if elapsed < 54:
+        p = min(3, (elapsed - 18) // 9)
+        return 3 + p, p
+    p = min(2, (elapsed - 54) // 12)
+    return 7 + p, p
+
+
+def _boss_death_x_eyes(surf, bx, by, w, h):
+    """Spin-out X eyes during the stagger stage (proposal 3.2)."""
+    ex_l = max(0, w // 4 - 1)
+    ex_r = max(0, w - w // 4 - 4)
+    ey = max(0, h // 3 - 1)
+    for ex in (ex_l, ex_r):
+        pygame.draw.line(surf, (255, 246, 224),
+                         (bx + ex, by + ey), (bx + ex + 3, by + ey + 3), 1)
+        pygame.draw.line(surf, (255, 246, 224),
+                         (bx + ex + 3, by + ey), (bx + ex, by + ey + 3), 1)
+
+
+def _draw_boss_death(boss, surf, cam, tick):
+    """10-frame staged boss defeat, drawn inline from each concrete boss's
+    draw() while state == "dying" and defeat_timer > 0 (proposal 3.2).
+    Draws nothing once the timer runs out — the corpse has fully burst."""
+    if boss.defeat_timer <= 0:
+        return
+    frame, prog = _boss_death_frame(boss)
+    r = boss.rect
+    x0, y0 = r.x - cam.ix, r.y - cam.iy
+    name = getattr(boss, "DEATH_FLAVOR", "dust")
+    detail, grit, burst_in, burst_out = _BOSS_DEATH_FLAVOR[name]
+    body = getattr(boss, "DEATH_BODY", (148, 60, 72))
+    outline = tuple(c * 45 // 100 for c in body)
+    shape = getattr(boss, "DEATH_SHAPE", "rect")
+
+    def _shape(s, color, x, y, w, h, width=0):
+        box = pygame.Rect(int(x), int(y), int(w), int(h))
+        if shape == "ellipse":
+            pygame.draw.ellipse(s, color, box, width)
+        else:
+            pygame.draw.rect(s, color, box, width)
+
+    if frame < 3:
+        # ---- stagger: per-frame shake, X eyes, flavor detail ramps up
+        bx = x0 + (2 if frame % 2 == 0 else -2)
+        col = body if frame % 2 == 0 else \
+            tuple(min(255, c + 70) for c in body)   # reel highlight
+        _shape(surf, col, bx, y0, r.w, r.h)
+        _shape(surf, outline, bx, y0, r.w, r.h, 2)
+        _boss_death_x_eyes(surf, bx, y0, r.w, r.h)
+        _boss_death_stagger(surf, name, detail, frame, bx, y0, r.w, r.h)
+    elif frame < 7:
+        # ---- crumble: quadrants drift apart while the body fades
+        pad = 16
+        drift = prog + 1
+        qw, qh = (r.w + 1) // 2, (r.h + 1) // 2
+        ov = make_surface(r.w + 2 * pad, r.h + 2 * pad)
+        for sxq in (-1, 1):
+            for syq in (-1, 1):
+                qx = 0 if sxq < 0 else r.w - qw
+                qy = 0 if syq < 0 else r.h - qh
+                ov.set_clip(pygame.Rect(pad + qx, pad + qy, qw, qh))
+                px, py = pad + sxq * drift, pad + syq * drift
+                _shape(ov, body, px, py, r.w, r.h)
+                _shape(ov, outline, px, py, r.w, r.h, 2)
+                ov.set_clip(None)
+        ov.set_alpha(_BOSS_DEATH_CRUMBLE_ALPHA[prog])
+        surf.blit(ov, (x0 - pad, y0 - pad))
+        _boss_death_debris(surf, name, grit, prog, x0, y0, r.w, r.h)
+    else:
+        # ---- explode: shrink behind a white flash + flavor burst
+        num, den = _BOSS_DEATH_SHRINK[prog]
+        w2, h2 = max(4, r.w * num // den), max(4, r.h * num // den)
+        cx, cy = x0 + r.w // 2, y0 + r.h // 2
+        bw, bh = w2 + 6, h2 + 6
+        ov = make_surface(bw, bh)
+        _shape(ov, body, 3, 3, w2, h2)
+        _shape(ov, outline, 3, 3, w2, h2, 1)
+        _boss_death_x_eyes(ov, 3, 3, w2, h2)
+        ov.set_alpha((235, 170, 110)[prog])
+        surf.blit(ov, (cx - bw // 2, cy - bh // 2))
+        pygame.draw.circle(surf, (255, 255, 255), (cx, cy), 5 + 3 * prog)
+        pygame.draw.circle(surf, burst_out, (cx, cy), 6 + 3 * prog, 1)
+        _boss_death_burst(surf, name, burst_in, burst_out, prog, cx, cy)
+
+
+def _boss_death_stagger(surf, name, col, frame, bx, by, w, h):
+    """Flavor detail on the reeling body; ramps across frames 0-2 so each
+    stagger frame reads as accumulating damage (proposal 3.2 table)."""
+    n = frame + 1
+    if name == "dust":                      # cracks spread across body
+        cracks = (((6, 4), (12, 10)), ((20, 5), (15, 12)),
+                  ((9, 19), (15, 25)))
+        for a, b in cracks[:n]:
+            pygame.draw.line(surf, col,
+                             (bx + a[0] * w // 32, by + a[1] * h // 32),
+                             (bx + b[0] * w // 32, by + b[1] * h // 32), 1)
+    elif name == "prism":                   # core glows bright white
+        cx, cy = bx + w // 2, by + h // 2 + 2
+        rad = 3 + 2 * frame
+        pygame.draw.polygon(surf, col, [
+            (cx, cy - rad), (cx + rad, cy), (cx, cy + rad), (cx - rad, cy)])
+    elif name == "wind":                    # feathers ruffle upward
+        for i in range(n):
+            fx = bx + 5 + i * 6
+            pygame.draw.line(surf, col, (fx, by + h - 8),
+                             (fx + 4, by + h - 12), 1)
+    else:                                   # ember: veins flare, crown tilts
+        for i in range(2):
+            vx = bx + 9 + i * 11
+            pygame.draw.line(surf, col, (vx, by + 5),
+                             (vx - 2, by + h - 5), 1)
+        tilt = (frame - 1) * 3
+        for ox in (4, 12, 20):
+            x = bx + ox + tilt
+            pygame.draw.polygon(surf, (255, 210, 90), [
+                (x, by), (x + 3, by - 7), (x + 6, by)])
+
+
+def _boss_death_debris(surf, name, col, prog, x0, y0, w, h):
+    """Chunks separating from the body during crumble (flavor-shaped:
+    rocks fall, prism shards scatter, feathers drift, molten drips)."""
+    d = prog + 1
+    if name == "prism":                      # shards scatter all directions
+        for sx, sy in ((-1, -1), (1, -1), (-1, 1), (1, 1)):
+            px = x0 + w // 2 + sx * (6 + 5 * d)
+            py = y0 + h // 2 + sy * (5 + 4 * d)
+            pygame.draw.polygon(surf, col, [
+                (px, py - 2), (px + 2, py), (px, py + 2), (px - 2, py)])
+    elif name == "wind":                     # feathers drift down slowly
+        for ox in (-5, 0, 6):
+            px = x0 + w // 2 + ox + prog
+            py = y0 + h - 3 + 3 * d
+            pygame.draw.line(surf, col, (px, py), (px + 3, py + 3), 1)
+    elif name == "ember":                    # molten chunks drip downward
+        for ox in (-4, 1, 5):
+            pygame.draw.circle(surf, col,
+                               (x0 + w // 2 + ox, y0 + h - 2 + 5 * d), 2)
+    else:                                    # dust: rocks tumble down
+        for ox in (-5, 0, 4):
+            pygame.draw.rect(surf, col,
+                             pygame.Rect(x0 + w // 2 + ox + prog,
+                                         y0 + h - 2 + 6 * d, 3, 3))
+
+
+def _boss_death_burst(surf, name, col_in, col_out, prog, cx, cy):
+    """Radial flavor particles for the final explosion frames."""
+    dist = 9 + 6 * prog
+    for i in range(8):
+        ang = i * math.pi / 4.0
+        px = cx + int(math.cos(ang) * dist)
+        py = cy + int(math.sin(ang) * dist)
+        col = col_in if i % 2 == 0 else col_out
+        if name == "ember":
+            pygame.draw.circle(surf, col, (px, py), 2)
+        elif name == "prism":
+            pygame.draw.polygon(surf, col, [
+                (px, py - 2), (px + 2, py), (px, py + 2), (px - 2, py)])
+        elif name == "wind":                 # curved-ish motion streaks
+            pygame.draw.line(surf, col, (px - 2, py - 1), (px + 2, py + 1), 1)
+        else:                                # dust grit
+            pygame.draw.rect(surf, col, pygame.Rect(px - 1, py - 1, 3, 3))
+
+
+# Per-zone enemy palettes (SI-H): zones 1-3 get multiply-tinted copies of
+# every cached frame, composed once at startup via C-speed BLEND_RGBA_MULT
+# (alpha channel untouched). Zone 0 reuses the base dicts by construction
+# (for_zone(0) is self), so pinned frame-identity tests stay valid.
+ENEMY_ZONE_FRAMES = {}        # zone -> {key: surface} for zones 1..3
+ENEMY_ZONE_HIT_FRAMES = {}    # zone -> {(key, hp): surface}
+_ENEMY_ZONE_TINT = {
+    1: (255, 208, 184),       # Ember Caves: warm ember wash
+    2: (196, 216, 255),       # Frost Peaks: cool icy wash
+    3: (212, 198, 236),       # Storm Keep: stormy violet wash
+}
+
+
+def _apply_zone_tint(source, tint):
+    """Return a multiply-tinted copy of `source`. The tint alpha is 255 so
+    BLEND_RGBA_MULT leaves per-pixel coverage exactly as composed."""
+    s = source.copy()
+    s.fill(tint + (255,), special_flags=pygame.BLEND_RGBA_MULT)
+    return s
+
+
 def _build_enemy_frames():
+    if ENEMY_FRAMES:                  # compose once; enemy art is palette-free
+        return
     for phase in (0, 1):
         ENEMY_FRAMES[("walker", "patrol", phase)] = _mk_walker(phase)
-        ENEMY_FRAMES[("chaser", "patrol", phase)] = _mk_chaser(phase)
-        ENEMY_FRAMES[("chaser", "chase", phase)] = _mk_chaser(phase, True)
+        # chaser gaze variants (SI-C 4.1); 3-tuple aliases keep the
+        # generic fallback path valid
+        for pd in (-1, 0, 1, 2):
+            ENEMY_FRAMES[("chaser", "patrol", phase, pd)] = \
+                _mk_chaser(phase, False, pd)
+            ENEMY_FRAMES[("chaser", "chase", phase, pd)] = \
+                _mk_chaser(phase, True, pd)
+        ENEMY_FRAMES[("chaser", "patrol", phase)] = \
+            ENEMY_FRAMES[("chaser", "patrol", phase, 0)]
+        ENEMY_FRAMES[("chaser", "chase", phase)] = \
+            ENEMY_FRAMES[("chaser", "chase", phase, 2)]
         ENEMY_FRAMES[("shellback", "patrol", phase)] = _mk_shellback(phase)
         ENEMY_FRAMES[("flyer", "patrol", phase)] = _mk_flyer(phase)
-    ENEMY_FRAMES[("walker", "dying", 0)] = _mk_walker_squash()
-    ENEMY_FRAMES[("chaser", "dying", 0)] = _mk_chaser_squash()
-    ENEMY_FRAMES[("shellback", "dying", 0)] = _mk_shellback_squash()
-    ENEMY_FRAMES[("flyer", "dying", 0)] = _mk_flyer(0)
-    ENEMY_FRAMES[("jumper", "dying", 0)] = _mk_jumper(False)
-    ENEMY_FRAMES[("spitter", "dying", 0)] = _mk_spitter(False)
+    # SI-B: 4-frame stride cycles; the "patrol" keys above/below stay as
+    # fallback aliases built from the first half of the same stride.
+    for kind, maker in (("walker", _mk_walker), ("shellback", _mk_shellback),
+                        ("shieldkin", _mk_shieldkin), ("bomber", _mk_bomber)):
+        for phase in (0, 1, 2, 3):
+            ENEMY_FRAMES[(kind, "walk", phase)] = maker(phase)
+    for phase in (0, 1, 2, 3):                    # wallcrawler stride + grip
+        ENEMY_FRAMES[("wallcrawler", "walk", phase)] = _mk_wallcrawler(phase)
+    for phase in (0, 1):
+        ENEMY_FRAMES[("wallcrawler", "grip", phase)] = \
+            _mk_wallcrawler(phase, True)
+    # SI-D: 5-frame squash-and-fade death sequences (proposal 3.1); the
+    # ("kind", "dying", 0) key doubles as the generic fallback frame.
+    dying = {
+        "walker": _mk_walker_squash(),
+        "chaser": _mk_chaser_squash(),
+        "shellback": _mk_shellback_squash(),
+        "flyer": _mk_flyer(0),
+        "jumper": _mk_jumper(False),
+        "spitter": _mk_spitter(0),
+        "shieldkin": _mk_squash((104, 112, 130)),
+        "bomber": _mk_squash((72, 76, 92)),
+        "wallcrawler": _mk_squash((128, 92, 168)),
+        "charger": _mk_squash((188, 108, 64)),
+        "needler": _mk_squash((96, 150, 120)),
+    }
+    for kind, base in dying.items():
+        for phase in range(5):
+            ENEMY_FRAMES[(kind, "dying", phase)] = _apply_death(base, phase)
     ENEMY_FRAMES[("jumper", "patrol", 0)] = _mk_jumper(False)
     ENEMY_FRAMES[("jumper", "air", 0)] = _mk_jumper(True)
-    ENEMY_FRAMES[("spitter", "patrol", 0)] = _mk_spitter(False)
-    ENEMY_FRAMES[("spitter", "attack", 0)] = _mk_spitter(True)
-    for phase in (0, 1, 2):
-        ENEMY_FRAMES[("shellback", "shell", phase)] = _mk_shell(phase)
+    ENEMY_FRAMES[("spitter", "patrol", 0)] = _mk_spitter(0)
+    for pose in (1, 2, 3):                        # windup/execute/recovery
+        ENEMY_FRAMES[("spitter", "attack", pose - 1)] = _mk_spitter(pose)
+    for phase in (0, 1, 2):                       # spin + slide-glow (4.2)
+        for glow in (0, 1):
+            ENEMY_FRAMES[("shellback", "shell", phase, glow)] = \
+                _mk_shell(phase, bool(glow))
     # ---- 5a: five new types ----
     for phase in (0, 1):
         ENEMY_FRAMES[("shieldkin", "patrol", phase)] = _mk_shieldkin(phase)
         ENEMY_FRAMES[("bomber", "patrol", phase)] = _mk_bomber(phase)
         ENEMY_FRAMES[("wallcrawler", "patrol", phase)] = _mk_wallcrawler(phase)
         ENEMY_FRAMES[("charger", "patrol", phase)] = _mk_charger(phase)
-        ENEMY_FRAMES[("charger", "attack", phase)] = _mk_charger(phase, True)
-        ENEMY_FRAMES[("needler", "patrol", phase)] = _mk_needler(phase)
-        ENEMY_FRAMES[("needler", "attack", phase)] = _mk_needler(phase, True)
-    ENEMY_FRAMES[("shieldkin", "dying", 0)] = _mk_squash((104, 112, 130))
-    ENEMY_FRAMES[("bomber", "dying", 0)] = _mk_squash((72, 76, 92))
-    ENEMY_FRAMES[("wallcrawler", "dying", 0)] = _mk_squash((128, 92, 168))
-    ENEMY_FRAMES[("charger", "dying", 0)] = _mk_squash((188, 108, 64))
-    ENEMY_FRAMES[("needler", "dying", 0)] = _mk_squash((96, 150, 120))
+        ENEMY_FRAMES[("needler", "patrol", phase)] = _mk_needler(0)
+    for level in (1, 2, 3):                       # charger horn coil (4.3)
+        ENEMY_FRAMES[("charger", "windup", level - 1)] = \
+            _mk_charger(0, level)
+    ENEMY_FRAMES[("charger", "attack", 0)] = _mk_charger(0, 4)
+    for pose in (1, 2, 3, 4):                     # needler aim/execute/recover
+        ENEMY_FRAMES[("needler", "attack", pose - 1)] = _mk_needler(pose)
+
+    # SI-A: every cached frame gets a 3-phase recoil variant, composed at
+    # startup so enemy_frame() stays a dict lookup at runtime.
+    for base_key, frame in ENEMY_FRAMES.items():
+        for hp in (0, 1, 2):
+            ENEMY_HIT_FRAMES[(base_key, hp)] = _apply_hit_flash(frame, hp)
+
+    # SI-H: per-zone tinted copies for zones 1-3 (zone 0 = base identity).
+    for zone, tint in _ENEMY_ZONE_TINT.items():
+        ENEMY_ZONE_FRAMES[zone] = {
+            key: _apply_zone_tint(frame, tint)
+            for key, frame in ENEMY_FRAMES.items()}
+        ENEMY_ZONE_HIT_FRAMES[zone] = {
+            key: _apply_zone_tint(frame, tint)
+            for key, frame in ENEMY_HIT_FRAMES.items()}
 
 
 # ------------------------------------------------------------- backgrounds
@@ -858,8 +1260,9 @@ def _make_clouds(pal=None):
 class AssetFactory:
     """Builds and caches every surface the game needs at startup."""
 
-    def __init__(self, pal=None):
+    def __init__(self, pal=None, zone=0):
         self._pal = pal or DEFAULT_PAL
+        self._zone = max(0, zone)   # SI-H: enemy palette theme (0 = base)
         _build_player_frames()
         _build_enemy_frames()
         self._terrain = [_terrain_variant(m, self._pal) for m in range(16)]
@@ -906,7 +1309,7 @@ class AssetFactory:
         if fac is None:
             merged = dict(DEFAULT_PAL)
             merged.update(ZONES[zone]["palette"] or {})
-            fac = AssetFactory(pal=merged)
+            fac = AssetFactory(pal=merged, zone=zone)
             self._zone_factories[zone] = fac
         return fac
 
@@ -1004,33 +1407,78 @@ class AssetFactory:
         kind = enemy.KIND
         st = enemy.state
         if st == "dying":
-            key = (kind, "dying", 0)
+            # SI-D: 6 ticks per phase across the 30-tick corpse window
+            elapsed = max(0, getattr(enemy, "DEATH_TICKS", 30)
+                          - enemy.death_timer)
+            key = (kind, "dying", min(4, elapsed // 6))
         elif kind == "shellback" and st == "shell":
-            frame = (enemy.anim_t // 5) % 3 if abs(enemy.vx) > 0.5 else 0
-            key = (kind, "shell", frame)
+            slide = abs(enemy.vx) > 0.5
+            frame = (enemy.anim_t // 5) % 3 if slide else 0
+            key = (kind, "shell", frame, 1 if slide else 0)  # glow ring
         elif kind == "spitter":
-            attack = getattr(enemy, "flash", 0) > 0
-            key = (kind, "attack" if attack else "patrol", 0)
+            fl = getattr(enemy, "flash", 0)
+            if fl > 5:
+                key = (kind, "attack", 1)          # execute
+            elif fl > 0:
+                key = (kind, "attack", 2)          # recovery
+            elif getattr(enemy, "windup", 0):
+                key = (kind, "attack", 0)          # windup
+            else:
+                key = (kind, "patrol", 0)
         elif kind == "jumper":
             key = (kind, "patrol" if enemy.on_ground else "air", 0)
-        elif kind == "chaser" and st == "chase":
-            key = (kind, "chase", (enemy.anim_t // 8) % 2)
+        elif kind == "chaser":
+            pd = getattr(enemy, "pupil_dx", 2 if st == "chase" else 0)
+            key = (kind, st, (enemy.anim_t // 8) % 2, max(-1, min(2, pd)))
         elif kind == "charger":
-            if getattr(enemy, "windup", 0) > 0 or enemy.state == "attack":
-                key = (kind, "attack", (enemy.anim_t // 6) % 2)
+            if enemy.state == "attack":
+                key = (kind, "attack", 0)
+            elif getattr(enemy, "windup", 0) > 0:
+                glow = max(1, min(3, getattr(enemy, "horn_glow", 1)))
+                key = (kind, "windup", glow - 1)
             else:
                 key = (kind, "patrol", (enemy.anim_t // 8) % 2)
         elif kind == "needler":
-            attack = getattr(enemy, "flash", 0) > 0
-            key = (kind, "attack" if attack else "patrol", 0)
+            fl = getattr(enemy, "flash", 0)
+            glow = getattr(enemy, "barrel_glow", 0)
+            if fl > 3:
+                key = (kind, "attack", 2)          # execute: extended barrel
+            elif fl > 0:
+                key = (kind, "attack", 3)          # recovery
+            elif glow:
+                key = (kind, "attack", glow - 1)   # aim glow tiers
+            else:
+                key = (kind, "patrol", 0)
+        elif kind == "bomber":
+            step = 3 if getattr(enemy, "targeting", False) else 6
+            key = (kind, "walk", (enemy.anim_t // step) % 4)
+        elif kind == "wallcrawler":
+            if enemy.state in ("climb", "ceiling"):
+                key = (kind, "grip", (enemy.anim_t // 8) % 2)
+            else:
+                key = (kind, "walk", (enemy.anim_t // 6) % 4)
+        elif kind in WALK_KINDS:                  # 4-frame stride (SI-B)
+            key = (kind, "walk", (enemy.anim_t // 6) % 4)
         else:
             key = (kind, "patrol", (enemy.anim_t // 8) % 2)
-        img = ENEMY_FRAMES.get(key)
+        # SI-H: themed factories serve multiply-tinted zone copies; the
+        # zone-0 factory serves the base dicts (identity preserved).
+        frames = ENEMY_ZONE_FRAMES.get(self._zone, ENEMY_FRAMES)
+        img = frames.get(key)
         if img is None:
-            img = ENEMY_FRAMES.get((kind, "patrol", 0),
-                                   ENEMY_FRAMES[(kind, "dying", 0)])
+            img = frames.get((kind, "patrol", 0),
+                             ENEMY_FRAMES[(kind, "dying", 0)])
+        flip_key = key
+        if getattr(enemy, "hit_flash", 0) > 0:        # recoil (SI-A)
+            hf = enemy.hit_flash
+            hp = 0 if hf > 4 else 1 if hf > 2 else 2
+            hit = ENEMY_ZONE_HIT_FRAMES.get(
+                self._zone, ENEMY_HIT_FRAMES).get((key, hp))
+            if hit is not None:
+                img = hit
+                flip_key = key + ("hit", hp)
         if enemy.facing < 0 and st != "dying":
-            return self._flipped(("e",) + key, img)
+            return self._flipped(("e",) + flip_key, img)
         return img
 
 

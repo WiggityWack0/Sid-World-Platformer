@@ -18,7 +18,8 @@ python run_game.py --seed 12345   # reproduce a specific world
 Run the test suite (headless-safe, no audio/display device needed):
 
 ````powershell
-python run_tests.py                # or: python -m pytest tests -q
+python run_tests.py                # fast suite; excludes @pytest.mark.slow tests
+python run_tests.py --full         # full suite; includes heavy fuzz/playtests
 ````
 
 ## The run at a glance
@@ -27,14 +28,16 @@ python run_tests.py                # or: python -m pytest tests -q
   Zone 2 Ember Caves (switches, lava, ceiling crawlers), Zone 3 Frost
   Peaks (combat focus, chargers, needlers), Zone 4 Storm Keep (everything
   combined). Difficulty rises linearly 0 -> 1.0 across the run; level
-  length grows per zone (2 -> 6 screens).
+  length now grows per zone: Zones 1-2 are 6/9/12/15/18 screens; Zones 3-4
+  are 10/15/20/25/30 screens. Longer levels also receive scaled timers and
+  extra checkpoints.
 * **One boss per zone** on a hand-authored arena carved into the level
-  tail: Boulder Brute, Crystal Golem, Warden Owl, Magma Monarch — each a
+  tail: Boulder Brute, Crystal Golem, Warden Owl, Magma Monarch � each a
   multi-phase fight with telegraphs, stagger windows, an HP bar, a
   WARNING intro, its own music, and a goal that stays locked until the
   boss falls.
 * **Progression:** unlocks + best scores + settings persist to
-  `save/progress.json` (atomic, schema-versioned, gitignored — see
+  `save/progress.json` (atomic, schema-versioned, gitignored � see
   `docs/SAVE_FORMAT.md`). Title menu: New Game / Continue / Level Select /
   Options. Level select shows all 20 nodes with lock state, best scores,
   and boss markers.
@@ -58,6 +61,27 @@ python run_tests.py                # or: python -m pytest tests -q
 | S (title) | Roll a new random seed |
 | Arrows + Enter | Menu navigation |
 
+### Gamepad (Xbox layout)
+
+One controller is supported through pygame-ce's joystick subsystem, and it
+may be plugged in before or during play (hot-plug safe). Pad presses are
+translated into the same actions as the keys above, so every menu and
+gameplay state works unchanged.
+
+| Pad | Action |
+|---|---|
+| Left stick / D-pad | Move (stick has a 0.25 deadzone; stick down = crouch/pipe) |
+| A | Jump (hold for height) / Confirm in menus |
+| B | Back in menus / Pause-resume in play |
+| X | Attack (fire/ice/lightning forms) |
+| Y | Cycle form |
+| LB / RB | Run |
+| Start | Pause |
+| Back | Mute / unmute, everywhere (persisted) |
+
+Vibration and button remapping are not implemented yet (future polish
+slice).
+
 Feel: acceleration + skid turns, coyote time (6 frames), jump buffering
 (6 frames), variable jump height, terminal velocity, crouch hitbox
 shrink, i-frame flicker on damage/respawn.
@@ -68,7 +92,7 @@ shrink, i-frame flicker on damage/respawn.
   i-frames, HUD heart icons; timed star (invincibility), speed and jump
   power-ups; 100 coins = 1-up.
 * **Elemental forms (D2):** fire (killing fireball), ice (freezing
-  shard), lightning (instant area zap) — offensive only (forms never
+  shard), lightning (instant area zap) � offensive only (forms never
   required to finish a level, D6).
 * **Puzzle mechanics:** floor switches + latched doors, pressure plates +
   timed doors (bonus loot only, D5), breakable bricks (bump, form, or
@@ -80,26 +104,41 @@ shrink, i-frame flicker on damage/respawn.
   Wallcrawler (clings to walls/ceilings), Charger (telegraphed dash),
   Needler (leading shots). Bosses: Boulder Brute / Crystal Golem /
   Warden Owl / Magma Monarch.
+* **Sprite animation overhaul (SI, 2026-10-14):** 4-frame walk cycles for
+  ground enemies, flyer wing-flap body bob, 3-pose attack cycles + visual
+  telegraphs (charger horn coil, needler barrel glow, bomber fuse flicker,
+  wallcrawler grip marks, chaser eye tracking), hit-flash recoil, 5-frame
+  squash-and-fade death sequences; bosses get per-phase palettes + detail
+  layers (cracks / core glow / feathers / lava veins), attack wind-up
+  crouch poses, and a 10-frame staged defeat (stagger -> crumble -> burst)
+  with per-boss flavor. Frames composed at startup by the pixel-art
+  factory; bosses draw inline per instance and idle with breathing bobs,
+  eye blinks, and an owl wing-flap cycle (Phase G follow-up). Enemies
+  also pick up a per-zone palette wash — Ember Caves warm, Frost Peaks
+  icy, Storm Keep violet — from the themed asset factory (Phase H).
 * **UX:** zone-themed palettes + ambient particles (leaves/embers/snow/
   rain), zone primer banners, first-time tutorial hints (toggle in
   Options), screen shake, particles, floaters, boss HP bar + WARNING
   banner, fade transitions, NEW BEST flags, victory stats incl. bosses
   defeated, spatial SFX (checkpoint/switch/shard/warp pan with distance),
   8 original chiptune tracks (title, A/B, C/D/E zone themes, boss, +
-  jingles) — all compositions original.
+  jingles) � all compositions original.
 
 ## How procedural generation works
 
-* Levels are stitched left->right from a library of **hand-authored chunks**
+* Levels are stitched left->right from a library of **28 hand-authored chunks**
   (flat runs, gaps, stairs, pipe alleys, floating steps, island chains,
   spike trenches, enemy gauntlets, moving-platform bridges, switch/door
-  puzzles, lava pits, timed-door bonus rooms, floor-spiker tracks) with a
-  difficulty curve — seeded `random.Random(seed)`, so **same seed +
+  puzzles, lava pits, timed-door bonus rooms, floor-spiker tracks, rolling
+  hills, twin gaps, high ledges, pipe trios, spike-trench pairs, ambush
+  steps, triple gaps, lava island chains, double gates, vertical bridges,
+  double spikers, and bomb battlements) with a
+  difficulty curve � seeded `random.Random(seed)`, so **same seed +
   difficulty + level index produce a byte-identical level**.
 * Every chunk is bounded by the **jump envelope derived from the real
   physics constants** (never hard-coded guesses).
 * The **validator** (`src/level/validator.py`) then *proves*
-  completability with the **base kit only** (D6 — power-ups/forms are
+  completability with the **base kit only** (D6 � power-ups/forms are
   never required):
   1. reachability graph over standable tiles,
   2. every jump/fall edge verified by a **per-tick trajectory simulation**
@@ -108,7 +147,7 @@ shrink, i-frame flicker on damage/respawn.
   3. an **augmented BFS** whose state is (cell, pressed switches, shard
      bit-mask) with dominance pruning, plus moving-platform ride edges,
   4. spawn -> goal search; on failure the generator retries (up to 20
-     seeds) and finally falls back to a known-good template — the game
+     seeds) and finally falls back to a known-good template � the game
      **never ships an unwinnable level**.
 * **Boss arenas** (zone finals) are carved into the level tail without
   changing the width formula; the proof covers arena *traversal*. Boss
@@ -151,7 +190,8 @@ src/
   assets/            runtime pixel-art factory (+ per-zone themed caches)
   audio/             SFX synth, music synth (8 tracks), mixer manager
                      (volumes, mute, spatial SFX, graceful degradation)
-tests/               557 headless-safe tests (SDL dummy drivers)
+tests/               715 headless-safe tests (SDL dummy drivers; 444 fast,
+                     271 slow)
 docs/SAVE_FORMAT.md  save-file documentation
 ````
 
@@ -164,27 +204,30 @@ docs/SAVE_FORMAT.md  save-file documentation
 
 ## Testing
 
-`tests/` holds **557 headless-safe tests** across 23 files:
+`tests/` holds **722 headless-safe tests** across 28 files:
 
-1. **Generator fuzz** (260 seeds x difficulties, all 20 levels) —
+1. **Generator fuzz** (260 seeds x difficulties, all 20 levels) �
    validator-proven completability, entity rules, length bounds,
    determinism self-consistency (no frozen hashes by design).
-2. **Physics** — measured jump envelope, coyote time, buffering,
+2. **Physics** � measured jump envelope, coyote time, buffering,
    variable jump, crouch, platform carry.
-3. **Enemies + bosses** — every behavior per type; arena invariants;
+3. **Enemies + bosses** � every behavior per type; arena invariants;
    scripted-sim fights that deterministically beat all 4 bosses.
-4. **Combat** — stomp rules, 12-cell form x enemy matrix, Shieldkin
+4. **Combat** � stomp rules, 12-cell form x enemy matrix, Shieldkin
    front/back, star/i-frame/lives flows.
-5. **Puzzles/objectives** — switches/doors/plates/timed doors (D5
+5. **Puzzles/objectives** � switches/doors/plates/timed doors (D5
    proof), breakables, lava, moving hazards (worst-case bands), key
    shards + goal lock.
-6. **Progress/menus** — save roundtrip + corruption tolerance +
+6. **Progress/menus** � save roundtrip + corruption tolerance +
    migrations, unlock rules, pause/options/title/level-select flows,
    transitions, tutorial once-only, spatial-SFX math.
-7. **Integration** — the real game driven headless through every state,
+7. **Integration** � the real game driven headless through every state,
    including a full 20-level run that beats each zone boss.
-8. **Audit guards** — D1 constants, pool caps, density growth, fight
+8. **Audit guards** � D1 constants, pool caps, density growth, fight
    length windows (Phase 7a).
+9. **Pacing/flat-tail regression** — breather exhaustion must continue
+   stitching, last-resort filler must not create flat runways, and
+   representative long levels must not end with oversized plain-ground tails.
 
 ## Notes & honest limitations
 
@@ -194,6 +237,14 @@ docs/SAVE_FORMAT.md  save-file documentation
   stretch goal (D4); the save schema reserves a `current_run` slot.
 * The validator proves *traversal* for boss arenas; boss *defeat* is
   proven by the deterministic fight tests, not by reachability (plan
-  section 8.7 — deliberate, documented).
-* Suite runtime ~86 s (557 tests) on the dev machine.
+  section 8.7 � deliberate, documented).
+* **Fixed pacing bug:** long levels previously could turn into a long flat run
+  near the final third when forced-breather fallback chunks reached their
+  anti-fatigue cap and the stitch loop stopped early. Slice 8 now continues
+  normal chunk selection when a breather is unavailable and uses a last-resort
+  safe filler only when the normal chunk pool is exhausted.
+* Fast suite runtime ~143 s (`python run_tests.py`; 451 tests, 271 slow tests
+  deselected) on the dev machine.
+* Full suite runtime ~486 s (`python run_tests.py --full`; 722 tests) on the
+  dev machine.
 

@@ -22,8 +22,11 @@ LEVEL_H_TILES = 18                # 288 px -> some vertical camera travel
 GROUND_ROW = 14                   # default surface row (solid begins here)
 MIN_FLOOR_ROW = 11                # highest ground may climb
 MAX_FLOOR_ROW = 15                # lowest ground may sink
-START_LEN_SCREENS = 2             # zone level 1 is ~2 screens wide
-LEN_GROWTH = 1                    # +1 screen per zone level (resets/zone)
+# Slice 4 D1 length table. Per-zone reset semantics remain intentional;
+# only the numeric table changes. Zones 0-1 start at 6 screens and grow by 3;
+# zones 2-3 start at 10 screens and grow by 5.
+ZONE_START_LEN = (6, 6, 10, 10)
+ZONE_LEN_GROWTH = (3, 3, 5, 5)
 TILES_PER_SCREEN = VIEW_W // TILE # 25
 
 # ------------------------------------------------------------------- zones
@@ -82,9 +85,15 @@ def difficulty_for(level_index):
     return min(1.0, level_index / max(1, LEVELS_PER_RUN - 1))
 
 
-def level_length_screens(zone_level):
-    """Per-zone length: resets each zone (§10 4a; recorded semantic change)."""
-    return START_LEN_SCREENS + zone_level * LEN_GROWTH
+def level_length_screens(zone, zone_level):
+    """Per-zone length: resets each zone (§10 4a; recorded semantic change).
+
+    Slice 4 makes the zone explicit so zones 2-3 can start longer than
+    zones 0-1 while preserving the per-zone reset behavior.
+    """
+    zone = max(0, min(len(ZONES) - 1, int(zone)))
+    zone_level = max(0, int(zone_level))
+    return ZONE_START_LEN[zone] + zone_level * ZONE_LEN_GROWTH[zone]
 
 # --------------------------------------------------------- player physics
 GRAVITY = 0.55
@@ -136,8 +145,25 @@ RUN_DUST_INTERVAL = 5         # ticks between run dust puffs
 # -------------------------------------------------------------- game rules
 START_LIVES = 3
 START_TIME = 400
-TIME_INTERVAL_FRAMES = 24     # one timer unit per 24 ticks
+TIME_MAX = 700                  # upper bound for length-scaled level timers
+TIME_PER_EXTRA_SCREEN = 12      # timer units granted per screen beyond 6
+TIME_INTERVAL_FRAMES = 24       # one timer unit per 24 ticks
 COINS_PER_LIFE = 100
+def time_for(level_index):
+    """Length-scaled level timer (Slice 5 D2).
+
+    Pure function of level_index: short levels keep the original 400-unit
+    budget, while longer levels receive extra time but not proportional time.
+    This preserves the intended difficulty increase while avoiding unfair
+    timeouts on 18- and 30-screen levels.
+    """
+    screens = level_length_screens(
+        zone_of(level_index), zone_level_of(level_index))
+    extra = max(0, screens - 6) * TIME_PER_EXTRA_SCREEN
+    return max(START_TIME, min(TIME_MAX, START_TIME + extra))
+
+
+
 # scoring ladder (2d-audited): coin 100 < stomp 200 < kick 300 <
 # form kill 400 = star kill 400 < boss 5000 (Phase 5)
 COIN_SCORE = 100
@@ -202,6 +228,7 @@ JUMPER_RANGE = 190
 SPITTER_COOLDOWN = 110
 SPITTER_RANGE = 210
 SPITTER_VY_TOL = 56
+SPITTER_WINDUP = 16            # visible wind-up pose before firing (SI-C)
 PROJECTILE_SPEED = 2.4
 PROJECTILE_LIFE = 130
 FLYER_AMP_Y = 26
@@ -306,6 +333,29 @@ CONTROLS = {
     "restart": ["R"],
     "confirm": ["Return", "Z", "Space"],
 }
+
+
+# --------------------------------------------------------------- controller
+# First-pass gamepad support (pygame-ce joystick subsystem): one pad, no
+# vibration, no remapping (later polish slice). SDL's standard Xbox layout:
+# A=0 B=1 X=2 Y=3 LB=4 RB=5 Back=6 Start=7.
+# Button presses are translated into synthetic KEYDOWN events using the
+# same key names as CONTROLS, so the whole state machine works unchanged.
+CONTROLLER_BUTTONS = {
+    0: ("Space", "Return"),   # A: Space = jump in play; Return = confirm in
+                              #    menus (Space reads as "jump" there, so the
+                              #    extra key makes one button do both)
+    1: ("Escape",),           # B: back in menus / pause-resume in play
+    2: ("C",),                # X: attack
+    3: ("F",),                # Y: cycle form
+    6: ("M",),                # Back: mute (global)
+    7: ("P",),                # Start: pause
+}
+CONTROLLER_HELD = {           # action -> buttons polled as held (no keydown)
+    "jump": (0,),             # A: keeps variable jump height + stomp hold
+    "run": (4, 5),            # LB / RB
+}
+STICK_DEADZONE = 0.25         # analog stick deadzone (fraction of full tilt)
 
 
 def jump_envelope():

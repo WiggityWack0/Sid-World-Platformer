@@ -68,6 +68,7 @@ class Bomber(Enemy):
         super().__init__(x, y)
         self.cooldown = config.BOMBER_COOLDOWN // 2
         self.shots = []
+        self.targeting = False  # True while lobbing the fuse faster (4.5)
 
     def think(self, level, player):
         self.vx = self.facing * config.BOMBER_SPEED
@@ -76,13 +77,15 @@ class Bomber(Enemy):
             self.vx = self.facing * config.BOMBER_SPEED
         self.cooldown -= 1
         if player.dead:
+            self.targeting = False
             return
         dx = player.cx - self.cx
         if abs(dx) > 1:
             self.facing = 1 if dx > 0 else -1
-        if (self.cooldown <= 0
-                and abs(dx) <= config.BOMBER_RANGE
-                and abs(player.cy - self.cy) <= config.BOMBER_ARC_TOL):
+        # targeting doubles the fuse-spark flicker rate (SI-C, proposal 4.5)
+        self.targeting = (abs(dx) <= config.BOMBER_RANGE
+                          and abs(player.cy - self.cy) <= config.BOMBER_ARC_TOL)
+        if self.cooldown <= 0 and self.targeting:
             t = max(18.0, abs(dx) / 3.0)          # lob flight time (pure math)
             self.shots.append(Bomb(self.cx, self.y - 4, dx / t,
                                    config.BOMB_VY0))

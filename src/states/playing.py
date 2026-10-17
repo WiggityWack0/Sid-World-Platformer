@@ -14,10 +14,10 @@ from src.config import (AMBIENT_INTERVAL, ATTACK_COOLDOWN, BREAK_SCORE,
                         SHARD_SCORE,
                         SHAKE_DEATH, STAR_KILL_SCORE, TILE,
                         STOMP_BOUNCE, STOMP_BOUNCE_HOLD,
-                        STOMP_SCORE, START_TIME, TIME_BONUS_PER_UNIT,
+                        STOMP_SCORE, TIME_BONUS_PER_UNIT,
                         TIME_INTERVAL_FRAMES, VIEW_H, VIEW_W, ZONES,
-                        WARP_ENTER_FRAMES, difficulty_for, zone_level_of,
-                        zone_of)
+                        WARP_ENTER_FRAMES, difficulty_for, time_for,
+                        zone_level_of, zone_of)
 from src.attacks import AttackProjectile
 from src.camera import Camera
 from src.enemies import contact_result
@@ -41,7 +41,7 @@ class PlayingState(State):
         self.camera.snap_to(self.player.rect)
         self.enemies = EnemyManager(self.level.enemy_spawns)
         self.respawn = self.level.spawn
-        self.time_left = START_TIME
+        self.time_left = time_for(run.level_index)
         self.timer_ticks = 0
         self.level_coins = 0
         self.warp_hold = 0

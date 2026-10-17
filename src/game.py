@@ -38,6 +38,7 @@ class Game:
         pygame.init()
         self.window = pygame.display.set_mode((WINDOW_W, WINDOW_H))
         pygame.display.set_caption("Sid's World")
+        inputs.controller.open()      # attach the first pad, if any (hot-plug ok)
         self.surface = pygame.Surface((VIEW_W, VIEW_H))
         self.clock = pygame.time.Clock()
         from src.assets import AssetFactory
@@ -135,6 +136,24 @@ class Game:
     def quit(self):
         self.running = False
 
+    # ---------------------------------------------------------------- input
+    def _dispatch(self, event):
+        """Global mute intercept, then route the event to the active state."""
+        if event.type == pygame.KEYDOWN \
+                and inputs.key_to_action(event.key) == "mute":
+            self.audio.toggle_mute()
+            # persist the mute with the other settings (6a)
+            self.progress["settings"]["muted"] = self.audio.muted
+            progress_mod.save(self.progress)
+            return
+        self.state.handle_event(event)
+
+    def _pump(self, event):
+        """One input event: controller translation + keyboard dispatch."""
+        self._dispatch(event)
+        for synth in inputs.controller.process_event(event):
+            self._dispatch(synth)
+
     # -------------------------------------------------------------- loop
     def run_loop(self):
         accumulator = 0.0
@@ -148,14 +167,7 @@ class Game:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.running = False
-                elif event.type == pygame.KEYDOWN:
-                    if inputs.key_to_action(event.key) == "mute":
-                        self.audio.toggle_mute()
-                        # persist the mute with the other settings (6a)
-                        self.progress["settings"]["muted"] = self.audio.muted
-                        progress_mod.save(self.progress)
-                        continue
-                self.state.handle_event(event)
+                self._pump(event)
 
             while accumulator >= FIXED_DT and self.running:
                 self.tick_transition()

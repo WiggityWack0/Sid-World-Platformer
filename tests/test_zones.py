@@ -24,20 +24,27 @@ def test_difficulty_for_spans_run():
 
 def test_per_zone_length_resets():
     f = config.level_length_screens
+    z = config.zone_of
     zl = config.zone_level_of
-    assert [f(zl(i)) for i in range(5)] == [2, 3, 4, 5, 6]
-    assert f(zl(5)) == 2, "length must reset each zone"
-    assert f(zl(19)) == 6
+
+    assert [f(z(i), zl(i)) for i in range(5)] == [6, 9, 12, 15, 18]
+    assert [f(z(i), zl(i)) for i in range(5, 10)] == [6, 9, 12, 15, 18]
+    assert [f(z(i), zl(i)) for i in range(10, 15)] == [10, 15, 20, 25, 30]
+    assert [f(z(i), zl(i)) for i in range(15, 20)] == [10, 15, 20, 25, 30]
+
+    assert f(z(5), zl(5)) == 6, "length must reset each zone"
+    assert f(z(10), zl(10)) == 10, "length must reset each zone"
+    assert f(z(19), zl(19)) == 30
 
 
-def test_zone0_matches_old_world_width():
-    """Recorded semantic change scope: idx 0-4 keep the OLD widths."""
+def test_zone0_matches_new_world_width():
+    """Slice 4 semantic change: zone 0 now starts at 6 screens and grows by 3."""
     from src.level.generator import generate_level
     for idx in range(5):
         lvl = generate_level(idx * 3 + 1, config.difficulty_for(idx), idx)
-        assert lvl.tiles.w == (config.START_LEN_SCREENS
-                               + idx * config.LEN_GROWTH
-                               ) * config.TILES_PER_SCREEN + 18
+        assert lvl.tiles.w == config.level_length_screens(
+            config.zone_of(idx), config.zone_level_of(idx)
+        ) * config.TILES_PER_SCREEN + 18
 
 
 def test_high_index_level_valid_and_deterministic():
@@ -49,9 +56,78 @@ def test_high_index_level_valid_and_deterministic():
     ok, reason = validate(a)
     assert ok, reason
     assert bytes(a.tiles.data) == bytes(b.tiles.data)
-    assert a.tiles.w == (config.START_LEN_SCREENS
-                         + config.zone_level_of(idx) * config.LEN_GROWTH
-                         ) * config.TILES_PER_SCREEN + 18
+    assert a.tiles.w == config.level_length_screens(
+        config.zone_of(idx), config.zone_level_of(idx)
+    ) * config.TILES_PER_SCREEN + 18
+
+def _assert_arena_carve(lvl):
+    """Minimum append_arena invariants for a 30-screen zone-final tail."""
+    from src.config import ARENA_COLS, GROUND_ROW, TILE
+
+    assert lvl.has_arena
+    assert lvl.boss_required
+    assert lvl.arena_x0 == lvl.tiles.w - ARENA_COLS
+
+    x0 = lvl.arena_x0
+    ground = GROUND_ROW
+    w = lvl.tiles.w
+
+    # Open entry corridor and solid floor at the arena edge.
+    assert not lvl.tiles.solid_at(x0 - 1, ground - 1)
+    assert not lvl.tiles.solid_at(x0, ground - 1)
+    assert lvl.tiles.solid_at(x0, ground)
+
+    # At least two jump heights of vertical dodge space across the arena.
+    perch = set(range(x0 + (ARENA_COLS - 4) // 2,
+                      x0 + (ARENA_COLS + 4) // 2))
+    clear_rows = 0
+    for ty in range(2, ground):
+        for tx in range(x0, w):
+            solid = lvl.tiles.solid_at(tx, ty)
+            if ty == ground - 3 and tx in perch:
+                assert solid, "perch exists"
+                continue
+            assert not solid, f"row {ty} col {tx} must be clear"
+        clear_rows += 1
+    assert clear_rows >= 10
+
+    # At least a six-tile flat runway with headroom.
+    runway = 0
+    for tx in range(x0, w):
+        if (lvl.tiles.solid_at(tx, ground)
+                and not lvl.tiles.solid_at(tx, ground - 1)
+                and not lvl.tiles.solid_at(tx, ground - 2)):
+            runway += 1
+        else:
+            runway = 0
+    assert runway >= 6
+
+    # Goal sits on the arena floor.
+    assert lvl.goal is not None
+    assert lvl.goal.rect.bottom == ground * TILE
+
+    # A zone-final boss is present.
+    from src.level.generator import BOSS_KINDS
+    kinds = {kind for kind, _, _ in lvl.enemy_spawns}
+    assert kinds & set(BOSS_KINDS), "30-screen zone-final missing its boss"
+
+
+def test_30_screen_zone_final_arena_carve_is_valid():
+    """Slice 4: longer zone finals must still carve a playable boss arena."""
+    from src.level.generator import generate_level
+    from src.level.validator import validate
+
+    for idx in (14, 19):
+        lvl = generate_level(31337 + idx, config.difficulty_for(idx), idx)
+        ok, reason = validate(lvl)
+        assert ok, f"idx={idx}: {reason}"
+        assert lvl.tiles.w == config.level_length_screens(
+            config.zone_of(idx), config.zone_level_of(idx)
+        ) * config.TILES_PER_SCREEN + 18
+        assert lvl.tiles.w == 30 * config.TILES_PER_SCREEN + 18
+        _assert_arena_carve(lvl)
+
+
 
 
 def test_run_context_finishes_at_20():
@@ -144,3 +220,66 @@ def test_playing_update_spawns_ambient(pygame_ready):
     for _ in range(config.AMBIENT_INTERVAL + 1):
         state.update()
     assert len(game.fx.particles) > 0
+
+
+# ------------------------------------------- enemy zone palettes (SI-H)
+def test_zone_enemy_frames_complete_and_tinted(pygame_ready):
+    """Zones 1-3 mirror every cached frame + hit variant, tinted with the
+    per-pixel alpha untouched; zone 0 keeps base identity (no copy)."""
+    import pygame
+    from src.assets import AssetFactory
+    from src.assets.asset_factory import (ENEMY_FRAMES, ENEMY_HIT_FRAMES,
+                                          ENEMY_ZONE_FRAMES,
+                                          ENEMY_ZONE_HIT_FRAMES)
+    AssetFactory()                              # builds all caches
+    assert 0 not in ENEMY_ZONE_FRAMES, "zone 0 must reuse the base dicts"
+    for zone in (1, 2, 3):
+        assert set(ENEMY_ZONE_FRAMES[zone]) == set(ENEMY_FRAMES), zone
+        assert set(ENEMY_ZONE_HIT_FRAMES[zone]) == set(ENEMY_HIT_FRAMES)
+    key = ("walker", "patrol", 0)
+    base, z1 = ENEMY_FRAMES[key], ENEMY_ZONE_FRAMES[1][key]
+    assert z1 is not base and z1.get_size() == base.get_size()
+    assert pygame.image.tobytes(z1, "RGBA") != pygame.image.tobytes(
+        base, "RGBA"), "tint must change the pixels"
+
+    def alpha(s):
+        return bytes(pygame.image.tobytes(s, "RGBA"))[3::4]
+
+    assert alpha(z1) == alpha(base), "per-pixel alpha must be preserved"
+
+
+def test_zone_enemy_dispatch_uses_factory_zone(pygame_ready):
+    """A themed factory serves its zone's frames; the base factory (and
+    every pinned identity test) keeps serving the base frames."""
+    import pygame
+    from src.enemy_manager import spawn_enemy
+    from src.assets import AssetFactory
+    from src.assets.asset_factory import ENEMY_FRAMES, ENEMY_ZONE_FRAMES
+    fac = AssetFactory()
+    w = spawn_enemy("walker", 5, 12)
+    w.facing = 1                               # unflipped identity (rule 7)
+    w.anim_t = 0
+    assert fac.enemy_frame(w) is ENEMY_FRAMES[("walker", "walk", 0)]
+    themed = fac.for_zone(2)
+    assert themed.enemy_frame(w) is \
+        ENEMY_ZONE_FRAMES[2][("walker", "walk", 0)]
+    assert fac.enemy_frame(w) is ENEMY_FRAMES[("walker", "walk", 0)], \
+        "base factory must keep serving base frames"
+    w.hit_flash = 5                            # themed recoil variant too
+    assert themed.enemy_frame(w) is not fac.enemy_frame(w)
+    pygame.image.tobytes(themed.enemy_frame(w), "RGBA")   # renders headless
+
+
+def test_zone_death_frames_tinted(pygame_ready):
+    """Corpses pick up the zone wash through the same dispatch."""
+    import pygame
+    from src.enemy_manager import spawn_enemy
+    from src.assets import AssetFactory
+    fac = AssetFactory()
+    w = spawn_enemy("walker", 5, 12)
+    w.facing = 1
+    w.start_dying()
+    w.hit_flash = 0                            # isolate the death frame
+    base = pygame.image.tobytes(fac.enemy_frame(w), "RGBA")
+    z3 = pygame.image.tobytes(fac.for_zone(3).enemy_frame(w), "RGBA")
+    assert z3 != base, "corpse must pick up the zone wash"

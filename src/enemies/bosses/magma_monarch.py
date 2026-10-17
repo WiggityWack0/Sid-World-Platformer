@@ -6,6 +6,7 @@ import pygame
 
 from src import config
 from src.config import TILE
+from src.assets.asset_factory import _draw_boss_death
 from src.enemies.boss import Boss
 from src.level import tiles as T
 
@@ -72,6 +73,9 @@ class MagmaMonarch(Boss):
     MAX_HP = config.MONARCH_HP
     W = 32
     H = 36
+    DEATH_SHAPE = "rect"           # inline defeat draw (SI-E 3.2)
+    DEATH_FLAVOR = "ember"
+    DEATH_BODY = (200, 60, 40)
 
     def __init__(self, x, y):
         super().__init__(x, y)
@@ -96,6 +100,9 @@ class MagmaMonarch(Boss):
                     level.tiles.set(p[0], p[1], T.EMPTY)
             self.puddles = keep
         self.volley_cd -= 1
+        if 0 <= self.volley_cd <= 12:
+            # crouch wind-up before the volley (SI-E 5.3, visual only)
+            self.telegraph = self.volley_cd
         if self.volley_cd <= 0 and not player.dead:
             n = 3 + min(2, self.phase)       # 3 / 4 / 5 shot fan
             spread = 0.9
@@ -125,23 +132,59 @@ class MagmaMonarch(Boss):
             self.puddles.append([tx, ty, config.MONARCH_PUDDLE_TICKS])
 
     def draw(self, surf, cam, assets, tick):
+        if self.state == "dying":
+            _draw_boss_death(self, surf, cam, tick)   # staged defeat (3.2)
+            return
         r = self.rect
-        body = (200, 60, 40)
-        if self.phase >= 2 and (tick // 5) % 2 == 0:
-            body = (255, 100, 50)            # molten at low HP
-        pygame.draw.rect(surf, body,
-                         pygame.Rect(r.x - cam.ix, r.y - cam.iy, r.w, r.h))
-        pygame.draw.rect(surf, (90, 24, 20),
-                         pygame.Rect(r.x - cam.ix, r.y - cam.iy, r.w, r.h), 2)
-        # crown spikes
-        for ox in (4, 12, 20):
+        dx, dy, w, h = self.windup_pose(tick, dip=5)  # crouch (5.3)
+        bx, by = r.x - cam.ix + dx, r.y - cam.iy + dy
+        by += self.idle_bob(tick, 40)        # breathing dip (SI-G)
+        rect = pygame.Rect(bx, by, w, h)
+        ph = min(2, self.phase)
+        body = ((200, 60, 40), (230, 100, 50), (255, 140, 60))[ph]
+        if ph >= 2 and (tick // 5) % 2 == 0:
+            body = (255, 178, 84)               # molten churn (5.2)
+        pygame.draw.rect(surf, body, rect)
+        self._veins(surf, rect, ph, tick)       # pulsing lava veins (5.4)
+        pygame.draw.rect(surf, (90, 24, 20), rect, 2)
+        self._crown(surf, rect, ph)             # spikes break off (5.4)
+        if self.blinking(tick):              # idle blink (SI-G)
+            for ox in (7, rect.w - 12):
+                pygame.draw.line(surf, (90, 24, 20),
+                                 (bx + ox, by + 14),
+                                 (bx + ox + 4, by + 14), 1)
+        else:
+            pygame.draw.rect(surf, (255, 240, 200),
+                             pygame.Rect(bx + 7, by + 12, 5, 4))
+            pygame.draw.rect(surf, (255, 240, 200),
+                             pygame.Rect(bx + rect.w - 12, by + 12, 5, 4))
+
+    def _veins(self, surf, rect, ph, tick):
+        """Lava-vein pulse period tightens per phase: 12 / 8 / 4 ticks;
+        the glow runs bright orange at phase 2 (proposal 5.4)."""
+        period = (12, 8, 4)[ph]
+        hot = (tick // period) % 2 == 0
+        if ph >= 2:
+            col = (255, 214, 96) if hot else (232, 110, 44)
+        else:
+            col = (255, 168, 70) if hot else (146, 44, 26)
+        for i, vx in enumerate((8, 16, 24)):
+            x = rect.x + vx * rect.w // 32
+            mid = (x - 2 + 4 * (i % 2), rect.y + rect.h // 2)
+            pygame.draw.line(surf, col, (x, rect.y + 6), mid, 1)
+            pygame.draw.line(surf, col, mid,
+                             (x, rect.bottom - 5), 1)
+
+    def _crown(self, surf, rect, ph):
+        """Crown spikes break off by phase: full / one missing / shattered
+        into stubs (proposal 5.4)."""
+        if ph == 0:
+            spikes, tip = (4, 12, 20), 7         # full crown
+        elif ph == 1:
+            spikes, tip = (4, 20), 7             # middle spike gone
+        else:
+            spikes, tip = (4, 12, 20), 2         # shattered
+        for ox in spikes:
+            x = rect.x + ox * rect.w // 32
             pygame.draw.polygon(surf, (255, 210, 90), [
-                (r.x - cam.ix + ox, r.y - cam.iy),
-                (r.x - cam.ix + ox + 3, r.y - cam.iy - 7),
-                (r.x - cam.ix + ox + 6, r.y - cam.iy)])
-        pygame.draw.rect(surf, (255, 240, 200),
-                         pygame.Rect(r.x - cam.ix + 7, r.y - cam.iy + 12,
-                                     5, 4))
-        pygame.draw.rect(surf, (255, 240, 200),
-                         pygame.Rect(r.x - cam.ix + r.w - 12,
-                                     r.y - cam.iy + 12, 5, 4))
+                (x, rect.y), (x + 3, rect.y - tip), (x + 6, rect.y)])
