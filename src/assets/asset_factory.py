@@ -11,7 +11,7 @@ import math
 import pygame
 
 from src.config import (TILE, VIEW_W, VIEW_H, FORM_COLORS, POWERUP_COLORS,
-                        ZONES)
+                        FG_TINTS, ZONES)
 from src.level import tiles as T
 
 # ------------------------------------------------------------------ palette
@@ -64,18 +64,49 @@ def _dotted(surf, color, points):
         surf.set_at((px, py), color)
 
 
+def _mix(a, b, t):
+    """Channel-wise lerp between two RGB tuples (art-time only)."""
+    return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
+
+
 # ------------------------------------------------------------------- tiles
 
-def _terrain_variant(mask, pal=None):
-    """Generate one 16x16 autotile variant for terrain (mask bits N/E/S/W)."""
+def _terrain_variant(mask, pal=None, zone=0):
+    """Generate one 16x16 autotile variant for terrain (mask bits N/E/S/W).
+
+    Phase 3 (T1): gradient dirt (lighter toward the grass line), pebble /
+    clump texture, grass overhang lip with rounded corners on exposed
+    sides, and a top-edge highlight. Phase 3 (T2): zone overlays — snow lip
+    (Frost), ember cracks (Ember), wet sheen (Storm) — palette-derived or
+    fixed tints only, never new palette keys. Mask contract unchanged."""
     pal = pal or DEFAULT_PAL
     s = make_surface(TILE, TILE)
     n, e, so, w = mask & 1, mask & 2, mask & 4, mask & 8
-    # dirt body
-    s.fill(pal["dirt"])
-    _dotted(s, pal["dirt_dk"], [(3, 7), (11, 4), (6, 12), (13, 11), (9, 9), (2, 13)])
-    _dotted(s, pal["dirt_lt"], [(5, 5), (12, 8), (8, 13), (14, 6), (1, 9)])
-    # grass cap when no solid above
+    # --- gradient dirt body: light near the grass line, dark at the base
+    s.fill(pal["dirt"], pygame.Rect(0, 0, TILE, TILE))
+    s.fill(pal["dirt_lt"], pygame.Rect(0, 0, TILE, 5))
+    s.fill(_mix(pal["dirt"], pal["dirt_lt"], 0.5),
+           pygame.Rect(0, 5, TILE, 2))
+    s.fill(pal["dirt_dk"], pygame.Rect(0, 11, TILE, 5))
+    s.fill(_mix(pal["dirt"], pal["dirt_dk"], 0.5), pygame.Rect(0, 9, TILE, 2))
+    # --- pebbles + clumps (deterministic scatter)
+    _dotted(s, pal["dirt_dk"], [(3, 8), (11, 12), (6, 14), (13, 7)])
+    _dotted(s, pal["dirt_lt"], [(5, 10), (12, 9), (8, 13), (1, 12)])
+    s.fill(_mix(pal["dirt_dk"], (0, 0, 0), 0.25),
+           pygame.Rect(9, 8, 2, 2))                      # clump
+    # --- zone overlays on the dirt (T2)
+    if zone == 1:                                # Ember Caves: ember cracks
+        _dotted(s, (104, 34, 22), [(4, 7), (5, 8), (10, 11), (11, 12),
+                                   (13, 13), (2, 10)])
+        s.set_at((5, 9), (150, 60, 30))                       # glowing tip
+    elif zone == 3:                              # Storm Keep: wet sheen
+        for px in (2, 5, 9, 12):
+            py = 6 + (px * 3) % 7
+            s.set_at((px, py), _mix(pal["dirt"], (200, 220, 255), 0.55))
+            if py + 1 < TILE:
+                s.set_at((px, py + 1), _mix(pal["dirt"], (200, 220, 255),
+                                            0.25))
+    # --- grass cap when no solid above
     if not n:
         s.fill(pal["grass"], pygame.Rect(0, 0, TILE, 4))
         for gx in range(0, TILE, 3):            # tufts
@@ -83,15 +114,22 @@ def _terrain_variant(mask, pal=None):
         s.fill(pal["grass_dk"], pygame.Rect(0, 4, TILE, 1))
         for gx in (1, 2, 6, 7, 11, 12):
             s.set_at((gx, 1), pal["grass_lt"])
+        s.fill(pal["grass_lt"], pygame.Rect(2, 0, TILE - 4, 1))  # highlight
+        if zone == 2:                           # Frost Peaks: snow lip
+            s.fill((236, 244, 252), pygame.Rect(0, 0, TILE, 2))
+            for gx in (3, 8, 13):
+                s.set_at((gx, 2), (214, 228, 244))       # snow drape dots
     # exposed-side outlines
     if not w:
         s.fill(OUTLINE, pygame.Rect(0, 0, 1, TILE))
         if not n:
             s.fill(OUTLINE, pygame.Rect(1, 0, 1, 4))
+            s.set_at((0, 1), pal["grass"])       # rounded overhang corner
     if not e:
         s.fill(OUTLINE, pygame.Rect(TILE - 1, 0, 1, TILE))
         if not n:
             s.fill(OUTLINE, pygame.Rect(TILE - 2, 0, 1, 4))
+            s.set_at((TILE - 1, 1), pal["grass"])  # rounded overhang corner
     if not so:
         s.fill(OUTLINE, pygame.Rect(0, TILE - 1, TILE, 1))
     if not n:
@@ -111,6 +149,13 @@ def _make_brick(pal=None):
         offset = 0 if row % 2 == 0 else 8
         for x in range(offset, TILE, 8):
             s.fill(MORTAR, pygame.Rect(x, y0, 1, 4))
+    # Phase 3 (T1): corner chips + face speckle (derived, no new keys)
+    chip = _shade(pal["brick_dk"], -20)
+    s.set_at((2, 1), chip)
+    s.set_at((1, 2), chip)
+    s.set_at((TILE - 2, TILE - 2), chip)
+    s.set_at((13, 8), _shade(pal["brick"], -26))
+    s.set_at((5, 11), _shade(pal["brick"], 18))
     s.fill(OUTLINE, pygame.Rect(0, 0, TILE, 1))
     s.fill(OUTLINE, pygame.Rect(0, TILE - 1, TILE, 1))
     s.fill(OUTLINE, pygame.Rect(0, 0, 1, TILE))
@@ -1081,22 +1126,94 @@ def _build_enemy_frames():
 
 # ------------------------------------------------------------- backgrounds
 
-def _make_sky(pal=None):
+# 2x2 Bayer thresholds for ordered dithering (Phase 2, T1)
+_BAYER2 = ((0, 2), (3, 1))
+
+
+def _shade(color, amount):
+    """Fixed-offset shade of an RGB tuple (palette-safe: no new keys)."""
+    return tuple(max(0, min(255, c + amount)) for c in color[:3])
+
+
+def _make_sky(pal=None, bands=8):
+    """Vertical gradient quantized to `bands` steps with 2x2 Bayer ordered
+    dithering between adjacent bands (removes hard banding; Phase 2 T1).
+
+    Per row the Bayer pattern yields at most two alternating colors (even
+    vs odd columns), so rows are assembled as raw RGB bytes — no per-pixel
+    Python set_at loop."""
     pal = pal or DEFAULT_PAL
-    s = make_surface(VIEW_W, VIEW_H)
     top = pal["sky_top"]
     bottom = pal["sky_bottom"]
+    rows = []
     for y in range(VIEW_H):
-        f = y / (VIEW_H - 1)
-        col = tuple(int(top[i] + (bottom[i] - top[i]) * f) for i in range(3))
-        s.fill(col, pygame.Rect(0, y, VIEW_W, 1))
+        f = y / (VIEW_H - 1) * (bands - 1)
+        lo = int(f)
+        hi = min(bands - 1, lo + 1)
+        frac = f - lo
+        c_lo = tuple(int(top[i] + (bottom[i] - top[i]) * lo / (bands - 1))
+                     for i in range(3))
+        if hi == lo:
+            rows.append(bytes(c_lo) * VIEW_W)
+            continue
+        c_hi = tuple(int(top[i] + (bottom[i] - top[i]) * hi / (bands - 1))
+                     for i in range(3))
+        t_even = (_BAYER2[y % 2][0] + 0.5) / 4.0
+        t_odd = (_BAYER2[y % 2][1] + 0.5) / 4.0
+        col_even = c_hi if frac > t_even else c_lo
+        col_odd = c_hi if frac > t_odd else c_lo
+        if col_even == col_odd:
+            rows.append(bytes(col_even) * VIEW_W)
+        else:
+            rows.append((bytes(col_even) + bytes(col_odd)) * (VIEW_W // 2))
+    s = pygame.image.frombuffer(b"".join(rows), (VIEW_W, VIEW_H), "RGB")
+    return s.copy()                      # own the memory; SRCALPHA-free sky
+
+
+def _make_mountains(width, base, amps, body, crest):
+    """Tileable far-mountain silhouette strip (Phase 2, T2): simpler and
+    darker than the hills, drawn between sky and clouds."""
+    height = 90
+    s = make_surface(width, height)
+    for x in range(width):
+        t = 2 * math.pi * x / width
+        y = int(base + amps[0] * math.sin(t)
+                + amps[1] * math.sin(3 * t + 0.9)
+                + amps[2] * math.sin(5 * t + 2.4))
+        pygame.draw.line(s, body, (x, y), (x, height - 1), 1)
+        s.set_at((x, y), crest)
+    return s
+
+
+def _make_celestial(zone):
+    """Small original sun (zones 0-1) or moon (zones 2-3) disc (Phase 2, T2).
+    Subtle sky furniture — never reads as a gameplay object."""
+    s = make_surface(26, 26)
+    if zone <= 1:                                     # sun: warm disc + halo
+        pygame.draw.circle(s, (255, 236, 170), (13, 13), 12)
+        pygame.draw.circle(s, (255, 248, 210), (13, 13), 8)
+        pygame.draw.circle(s, (255, 255, 240), (11, 11), 2)
+    else:                                             # moon: pale + craters
+        pygame.draw.circle(s, (226, 232, 246), (13, 13), 10)
+        pygame.draw.circle(s, (200, 208, 228), (10, 11), 2)
+        pygame.draw.circle(s, (204, 212, 232), (15, 15), 1)
+        pygame.draw.circle(s, (200, 208, 228), (14, 10), 1)
     return s
 
 
 def _make_hills(width, base, amps, body, crest):
-    """Tileable rolling-hills strip (integer-period sines wrap seamlessly)."""
+    """Tileable rolling-hills strip (integer-period sines wrap seamlessly).
+
+    Phase 2 (T3): interior speckle texture, second crest tone, and sparse
+    treeline bumps on the silhouette — all derived from body/crest (no new
+    palette keys); accents wrap with the strip."""
     height = 110
     s = make_surface(width, height)
+    dk = _shade(body, -34)                 # speckle dark
+    lt = _shade(body, 26)                  # speckle light
+    crest_dk = _shade(crest, -28)          # second crest tone
+    tree = _shade(body, -52)               # treeline silhouette
+    period = max(8, width // 10)
     for x in range(width):
         t = 2 * math.pi * x / width
         y = int(base + amps[0] * math.sin(t)
@@ -1105,8 +1222,26 @@ def _make_hills(width, base, amps, body, crest):
         pygame.draw.line(s, body, (x, y), (x, height - 1), 1)
         s.set_at((x, y), crest)
         if y + 1 < height:
-            s.set_at((x, y + 1), crest)
+            s.set_at((x, y + 1), crest_dk)
+        # interior speckle (deterministic sparse dots below the crest)
+        for k, off in ((dk, 5), (lt, 9), (dk, 14)):
+            sy = y + off + ((x * 7 + off * 3) % 4)
+            if sy < height and (x + off) % 3:
+                s.set_at((x, sy), k)
+    # treeline bumps (wrap-safe: doubled when they cross the seam)
+    for x in range(0, width, period):
+        bump_h = 4 + (x // period) % 3
+        t = 2 * math.pi * x / width
+        y = int(base + amps[0] * math.sin(t)
+                + amps[1] * math.sin(2 * t + 1.3)
+                + amps[2] * math.sin(3 * t + 2.1))
+        for dx in (-1, 0, 1):
+            for edge in {x + dx, x + dx - width, x + dx + width}:
+                if 0 <= edge < width:
+                    for dy in range(bump_h):
+                        s.set_at((edge, max(0, y - bump_h + dy)), tree)
     return s
+
 
 
 def _make_powerup(kind, frame):
@@ -1221,9 +1356,10 @@ def _make_spiker(frame):
 
 
 def _make_lava(frame):
-    """Original lava tile: molten surface, 2-frame pulse (3b-1)."""
+    """Original lava tile: molten surface, 4-frame pulse (3b-1; Phase 3 T3
+    extended the cycle 2 -> 4 with a travelling glow)."""
     s = make_surface(TILE, TILE)
-    hot = (255, 140, 30) if frame else (255, 170, 40)
+    hot = ((255, 170, 40), (255, 150, 34), (255, 140, 30), (255, 155, 36))[frame % 4]
     deep = (190, 48, 20)
     glow = (255, 220, 90)
     s.fill(deep)
@@ -1231,8 +1367,12 @@ def _make_lava(frame):
     for x in range(TILE):                          # bubbling surface
         if (x * 7 + frame * 3) % 11 < 3:
             s.set_at((x, 6), deep)
-    s.set_at((3 + frame, 2), glow)
-    s.set_at((11 - frame, 3), glow)
+        if (x * 5 + frame * 2) % 13 == 4:          # secondary crust wave
+            s.set_at((x, 4), deep)
+    s.set_at((3 + frame * 2, 2), glow)             # glow travels L -> R
+    s.set_at((11 - frame * 2, 3), glow)
+    if frame % 2 == 0:                             # bubble pop every other
+        s.set_at((7, 1), (255, 240, 160))
     return s
 
 
@@ -1255,6 +1395,146 @@ def _make_clouds(pal=None):
     return s
 
 
+def _make_foreground(tint):
+    """Bottom-edge silhouette strip (Phase 2, T5): near-black foliage/rock
+    bumps, at most 16 px tall; per-zone fixed tint (not palette keys).
+    Tileable across the strip width."""
+    w, h = VIEW_W + 80, 16
+    s = make_surface(w, h)
+    body = (*tint, 110)
+    edge = (*_shade(tint, 22), 110)
+    for x in range(w):
+        # two overlapping sine periods -> organic, wrapping bump profile
+        t = 2 * math.pi * x / w
+        top = h - 3 - int(4.5 * (1 + math.sin(t * 3 + 0.4))
+                          + 2.5 * (1 + math.sin(t * 7 + 2.0))) // 2
+        top = max(2, min(h - 2, top))
+        pygame.draw.line(s, body, (x, top), (x, h - 1), 1)
+        s.set_at((x, top), edge)
+    return s
+
+
+def _make_aurora():
+    """Two wavy translucent bands (Phase 2, T4: Frost Peaks shimmer)."""
+    w, h = VIEW_W + 80, 46
+    s = make_surface(w, h)
+    for col, y0, amp, ph in (((120, 220, 190), 12, 6, 0.0),
+                             ((150, 170, 240), 26, 8, 1.7)):
+        for x in range(w):
+            t = 2 * math.pi * x / w
+            y = int(y0 + amp * math.sin(2 * t + ph))
+            for dy in range(3):
+                if 0 <= y + dy < h:
+                    s.set_at((x, y + dy), (*col, 70 - dy * 18))
+    return s
+
+
+def _make_rain_veil():
+    """Faint diagonal streak strip (Phase 2, T4: Storm Keep distance)."""
+    w, h = VIEW_W + 80, 120
+    s = make_surface(w, h)
+    for i in range(90):
+        x = (i * 53) % w
+        y = (i * 37) % h
+        for k in range(4):
+            if x + k < w and y + k < h:
+                s.set_at((x + k, y + k), (170, 190, 230, 46))
+    return s
+
+
+# ------------------------------------------------------- decorations (T4)
+# Purely cosmetic overlay sprites (Phase 3). Never solid, never hashed,
+# never validated — see Level.decorations and generator._scatter.
+
+def _make_decoration(kind, frame=0):
+    """Small original 16px-grid decoration sprite (Phase 3, T4).
+
+    Drawn on top of the tile layer at the decorated tile's position; each
+    kind is anchored so it reads against its host surface (mushrooms sit
+    ON grass, stalactites hang FROM ceilings, etc.)."""
+    s = make_surface(TILE, TILE)
+    if kind == "mushroom":
+        stem = (226, 214, 190)
+        cap = (200, 70, 60) if frame == 0 else (216, 96, 74)
+        s.fill(stem, pygame.Rect(7, 10, 2, 5))
+        pygame.draw.ellipse(s, cap, pygame.Rect(4, 6, 8, 5))
+        s.set_at((6, 7), (245, 235, 220))          # cap shine
+        s.set_at((4, 15), OUTLINE)                 # base anchor pixel
+        s.set_at((11, 15), OUTLINE)
+    elif kind == "vine":
+        leaf = (56, 130, 60)
+        leaf_lt = (96, 172, 88)
+        for i in range(12):                        # hanging strand
+            x = 7 + (1 if i % 4 < 2 else 0)
+            s.set_at((x, i), (44, 100, 48))
+            if i % 3 == 1:
+                s.set_at((x + 1, i), leaf)
+            if i % 5 == 2:
+                s.set_at((x - 1, i), leaf_lt)
+    elif kind == "banner":
+        rod = (110, 114, 130)
+        cloth = (140, 70, 150) if frame == 0 else (128, 62, 140)
+        cloth_lt = (180, 110, 190)
+        s.fill(rod, pygame.Rect(2, 2, 12, 1))      # rod
+        s.fill(cloth, pygame.Rect(3, 3, 9, 10))
+        s.fill(cloth_lt, pygame.Rect(4, 4, 2, 8))  # fold highlight
+        for i in range(3):                         # pennant tail
+            s.set_at((3 + i * 4 // 2, 13), cloth)
+    elif kind == "stalactite":
+        rock = (128, 118, 138)
+        rock_dk = (96, 88, 106)
+        tip = (168, 160, 180)
+        for i in range(10):                        # tapering cone
+            wdt = max(1, 6 - i * 2 // 3)
+            x0 = 8 - wdt // 2
+            s.fill(rock if (i + frame) % 2 else rock_dk,
+                   pygame.Rect(x0, i, wdt, 1))     # banding shifts per frame
+        s.set_at((8, 9), tip)                      # dripping tip
+        if frame % 3 == 1:
+            s.set_at((8, 12), (180, 200, 230))     # droplet forming
+        elif frame % 3 == 2:
+            s.set_at((8, 14), (180, 200, 230))     # droplet falling
+    elif kind == "torch":
+        s.fill((96, 66, 44), pygame.Rect(7, 8, 2, 7))   # handle
+        s.fill((60, 42, 28), pygame.Rect(6, 14, 4, 2))  # bracket
+        flame = ((255, 180, 60), (255, 210, 90))[frame % 2]
+        core = (255, 240, 170)
+        pygame.draw.polygon(s, flame, [(5, 8), (8, 1), (11, 8)])
+        s.set_at((8, 3), core)
+        if frame % 2:
+            s.set_at((8, 0), (255, 160, 40))           # flicker tip
+    elif kind == "icicle":
+        ice = (180, 220, 248)
+        ice_dk = (140, 190, 228)
+        for i in range(8):
+            wdt = max(1, 4 - i // 2)
+            x0 = 8 - wdt // 2
+            s.fill(ice if i % 2 else ice_dk, pygame.Rect(x0, i, wdt, 1))
+        s.set_at((8, 8), (230, 246, 255))             # glint tip
+        if frame % 3 == 1:
+            s.set_at((8, 11), (200, 232, 252))        # drip forming
+        elif frame % 3 == 2:
+            s.set_at((8, 13), (200, 232, 252))        # drip falling
+    return s
+
+
+DECORATION_KINDS = ("mushroom", "vine", "banner",
+                    "stalactite", "torch", "icicle")
+# animated kinds -> frame count (others are single-frame)
+DECORATION_FRAMES = {"torch": 2, "icicle": 3, "stalactite": 3,
+                     "mushroom": 2, "banner": 2}
+
+
+def _make_goal_glow():
+    """Warm radial unlock glow (Phase 5 T5): concentric alpha rings built
+    small, smoothscaled once for a soft falloff. Palette-independent."""
+    small = make_surface(24, 24)
+    for r, a in ((11, 48), (8, 104), (5, 168)):
+        pygame.draw.circle(small, (255, 236, 170, a), (12, 12), r)
+    return pygame.transform.smoothscale(small, (48, 48))
+
+
+
 # ------------------------------------------------------------- asset cache
 
 class AssetFactory:
@@ -1265,7 +1545,8 @@ class AssetFactory:
         self._zone = max(0, zone)   # SI-H: enemy palette theme (0 = base)
         _build_player_frames()
         _build_enemy_frames()
-        self._terrain = [_terrain_variant(m, self._pal) for m in range(16)]
+        self._terrain = [_terrain_variant(m, self._pal, self._zone)
+                         for m in range(16)]
         self._brick = _make_brick(self._pal)
         self._question = [_make_question(f) for f in range(4)]
         self._used = _make_used()
@@ -1276,7 +1557,7 @@ class AssetFactory:
         self._switch_plates = {False: _make_switch_plate(False),
                                True: _make_switch_plate(True)}
         self._plates = {False: _make_plate(False), True: _make_plate(True)}
-        self._lava = [_make_lava(f) for f in range(2)]
+        self._lava = [_make_lava(f) for f in range(4)]   # Phase 3 T3: 4 frames
         self._spiker = [_make_spiker(f) for f in range(2)]
         self._shards = [_make_shard(f) for f in range(2)]
         self._coins = [_make_coin(f) for f in range(4)]
@@ -1287,9 +1568,15 @@ class AssetFactory:
         self._checkpoints = {False: _make_checkpoint(False),
                              True: _make_checkpoint(True)}
         self._goal = _make_goal_gate()
+        self._goal_glow = _make_goal_glow()   # unlock flourish (Phase 5 T5)
         self._platform = _make_platform_seg()
         self._projectiles = [_make_projectile(i * 5) for i in range(3)]
         self._sky = _make_sky(self._pal)
+        self._mountains = _make_mountains(
+            200, 46, (14, 8, 5),
+            _shade(self._pal["hills_far_body"], -40),
+            _shade(self._pal["hills_far_crest"], -30))
+        self._celestial = _make_celestial(self._zone)
         self._hills_far = _make_hills(
             240, 62, (16, 7, 4),
             self._pal["hills_far_body"], self._pal["hills_far_crest"])
@@ -1297,6 +1584,15 @@ class AssetFactory:
             320, 72, (22, 9, 5),
             self._pal["hills_near_body"], self._pal["hills_near_crest"])
         self._clouds = _make_clouds(self._pal)
+        self._foreground = _make_foreground(FG_TINTS[self._zone])
+        # per-zone sky events (Phase 2 T4); other zones hold None
+        self._aurora = _make_aurora() if self._zone == 2 else None
+        self._rain_veil = _make_rain_veil() if self._zone == 3 else None
+        # decoration overlay cache (Phase 3 T4): shared, palette-independent
+        self._decorations = {
+            (kind, f): _make_decoration(kind, f)
+            for kind in DECORATION_KINDS
+            for f in range(DECORATION_FRAMES.get(kind, 1))}
         self._flip = {}
         self._zone_factories = {}
 
@@ -1312,6 +1608,11 @@ class AssetFactory:
             fac = AssetFactory(pal=merged, zone=zone)
             self._zone_factories[zone] = fac
         return fac
+
+    @property
+    def zone(self):
+        """Theme zone this factory serves (0 = legacy identity)."""
+        return self._zone
 
     # ------------------------------------------------------ tiles/objects
     def terrain(self, mask):
@@ -1342,7 +1643,7 @@ class AssetFactory:
         return self._plates[bool(active)]
 
     def lava(self, frame):
-        return self._lava[frame % 2]
+        return self._lava[frame % 4]
 
     def spiker(self, frame):
         return self._spiker[frame % 2]
@@ -1365,6 +1666,10 @@ class AssetFactory:
     def goal_gate(self):
         return self._goal
 
+    def goal_glow(self):
+        """Radial unlock glow (Phase 5 T5); caller sets alpha per frame."""
+        return self._goal_glow
+
     def platform_seg(self):
         return self._platform
 
@@ -1383,6 +1688,28 @@ class AssetFactory:
 
     def clouds(self):
         return self._clouds
+
+    def mountains(self):
+        return self._mountains
+
+    def celestial(self):
+        return self._celestial
+
+    def foreground(self):
+        return self._foreground
+
+    def aurora(self):
+        """Frost Peaks shimmer strip (None outside zone 2)."""
+        return self._aurora
+
+    def rain_veil(self):
+        """Storm Keep distance streaks (None outside zone 3)."""
+        return self._rain_veil
+
+    def decoration(self, kind, frame=0):
+        """Cosmetic overlay sprite (Phase 3 T4); clamped to available frames."""
+        n = DECORATION_FRAMES.get(kind, 1)
+        return self._decorations[(kind, frame % n)]
 
     # ------------------------------------------------------------ sprites
     def _flipped(self, key, img):

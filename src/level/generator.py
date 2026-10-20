@@ -226,9 +226,7 @@ def chunk_gap(b, rng, diff):
     b.pit(gap)
     b.coins_arc(start, gap, b.floor)
     b.ground(rng.randint(4, 6))
-    # zone-1 teaching walkers: deterministic (no rng) below 0.25 so the
-    # mid/high-difficulty RNG stream and layouts stay byte-identical
-    if diff < 0.25 or (diff > 0.35 and rng.random() < 0.5):
+    if diff > 0.35 and rng.random() < 0.5:
         b.enemy("walker", b.x - 2)
 
 
@@ -337,7 +335,8 @@ def chunk_overhead(b, rng, diff):
         tid = T.QUESTION if rng.random() < 0.5 else T.BRICK
         b.level.tiles.set(start + 2 + i, b.floor - 4, tid)
     b.coins_row(start + 2, bn, b.floor - 6)
-    b.enemy("walker", start + n - 2)
+    if diff > 0.25:
+        b.enemy("walker", start + n - 2)
 
 
 def chunk_moving_bridge(b, rng, diff):
@@ -470,10 +469,8 @@ def chunk_twin_gaps(b, rng, diff):
         b.coins_arc(start, gap, b.floor)
         b.ground(rng.randint(3, 4))
     b.ground(2)
-    # zone-1 teaching walkers: deterministic (no rng) below 0.25 so the
-    # mid/high-difficulty RNG stream and layouts stay byte-identical
-    if diff < 0.25 or (diff > 0.35 and rng.random() < 0.5):
-        kind = "walker" if diff < 0.25 else pick_enemy_kind(rng, diff, b.idx)
+    if diff > 0.35 and rng.random() < 0.5:
+        kind = pick_enemy_kind(rng, diff, b.idx)
         b.enemy(kind, b.x - 2, b.floor - 3 if kind == "flyer" else None)
 
 
@@ -894,20 +891,31 @@ def _place_powerups(b, seed):
 
 
 def _place_shards(b, seed, diff):
-    """Objective shards (3c): SHARDS_PLACED across thirds of the level;
+    """Objective shards (3c): ONE shard per third of the level where a
+    qualifying spot exists (SHARDS_PLACED = 3 targets);
     required = min(SHARDS_REQUIRED, placed). Gated at diff >= 0.25
-    (showcase rule, like doors).
+    (showcase rule, like doors): worlds 2-4 carry key objectives; world 1
+    sits entirely below the gate, so its final locks the goal with the
+    boss alone.
 
-    Reachability filter: the plain graph closure from spawn (doors closed,
-    hazards worst-case, moving-hazard bands overlaid) — shards never land
-    behind timed doors, inside bands, or on unreachable islands. Uses a
-    SEPARATE derived RNG (2b pattern): the geometry stream is untouched.
-    The validator re-proves the full objective regardless (fail-safe).
+    Placement contract (bugfix batch): a candidate must lie on some
+    spawn -> goal route in the validator's OWN reachability graph
+    (`build_graph`, exact jump/fall edges). The previous walk-only BFS
+    stopped at the first pit and had capped placement at exactly 1 shard
+    in ~100% of levels (0 in world-1 finals). Using the validator's edges
+    can never over-claim — validate() proves the objective over the SAME
+    graph — so the worst case stays under-placing (fail-safe).
+
+    Cell filter: standing spot (floor below, headroom above), off hazards,
+    doors and moving-hazard bands. Uses a SEPARATE derived RNG (2b
+    pattern): the geometry stream is untouched. The validator re-proves
+    the full objective regardless (fail-safe).
     """
     if diff < 0.25:
         return
     from collections import deque
-    from src.level.validator import dynamic_hazard_cells, spawn_cell
+    from src.level.validator import (build_graph, dynamic_hazard_cells,
+                                     goal_cell, spawn_cell)
     level = b.level
     w, h = level.tiles.w, level.tiles.h
     goal_tx = level.goal.tx if level.goal is not None else w - 6
@@ -918,30 +926,44 @@ def _place_shards(b, seed, diff):
     rng = random.Random(seed ^ 0x53A1)
     band = dynamic_hazard_cells(level)      # worst-case moving-hazard band
 
-    def crossable(tx, ty):
-        return ((tx, ty) not in band
-                and not level.tiles.solid_at(tx, ty)
-                and not level.tiles.solid_at(tx, ty - 1)
-                and level.tiles.solid_at(tx, ty + 1)
-                and not level.tiles.hazard_at(tx, ty)
-                and level.tiles.get(tx, ty) != T.DOOR)
-
-    # Cheap conservative reach: walk/step BFS (jump-only islands are
-    # skipped — false-negative-safe, and ~10x cheaper than build_graph).
-    sc = spawn_cell(level)
+    # Route-restricted reach (bugfix): cells BOTH reachable from spawn AND
+    # able to reach the goal — i.e. cells on some spawn -> goal route —
+    # computed over the validator's OWN graph model (build_graph on the
+    # all-doors-open world; timed doors stay closed, matching validate()).
+    # Deterministic (no RNG); the old walk-only BFS stopped at the first
+    # pit/door, which had capped placement at 1 shard in ~100% of levels.
     reach = set()
-    if sc is not None and crossable(*sc):
-        q = deque([sc])
-        reach.add(sc)
-        while q:
-            cx, cy = q.popleft()
-            for dx in (-1, 0, 1):
-                for dy in (-1, 0, 1):
-                    nc = (cx + dx, cy + dy)
-                    if nc not in reach and 0 <= nc[0] < w and 2 <= nc[1] < h \
-                            and crossable(*nc):
-                        reach.add(nc)
-                        q.append(nc)
+    cleared = []
+    for d in getattr(level, "doors", []):
+        if not d.solver_opens:
+            continue
+        for tx, ty in d.cells():
+            if level.tiles.get(tx, ty) == T.DOOR:
+                level.tiles.set(tx, ty, T.EMPTY)
+                cleared.append((tx, ty))
+    try:
+        cells, adj = build_graph(level)
+    finally:
+        for tx, ty in cleared:
+            level.tiles.set(tx, ty, T.DOOR)
+    sc = spawn_cell(level)
+    gc = goal_cell(level)
+    if sc in cells and gc in cells:
+        def bfs(src, graph):
+            seen = {src}
+            q = deque([src])
+            while q:
+                n = q.popleft()
+                for nb in graph.get(n, ()):
+                    if nb not in seen:
+                        seen.add(nb)
+                        q.append(nb)
+            return seen
+        radj = {}
+        for a, nbs in adj.items():
+            for nb in nbs:
+                radj.setdefault(nb, []).append(a)
+        reach = bfs(sc, adj) & bfs(gc, radj)
     third = (hi - lo) // 3
     zones = [(lo, lo + third), (lo + third, lo + 2 * third),
              (lo + 2 * third, hi)]
@@ -951,6 +973,7 @@ def _place_shards(b, seed, diff):
         for tx in range(a, max(a + 1, z)):
             for ty in range(2, h - 1):
                 if ((tx, ty) in reach
+                        and (tx, ty) not in band
                         and not level.tiles.solid_at(tx, ty)
                         and not level.tiles.solid_at(tx, ty - 1)
                         and level.tiles.solid_at(tx, ty + 1)
@@ -1202,6 +1225,45 @@ def _fill_remaining(b):
             b.ground(3)
 
 
+def _scatter_decorations(lvl):
+    """Populate `lvl.decorations` with a cosmetic overlay (Phase 3 T4).
+
+    DETERMINISM CONTRACT (recorded): uses its OWN RNG stream seeded from
+    the level seed (`seed ^ 0xDEC0DE`) — the generator's live `rng` is
+    never touched, so gameplay chunk choice, enemies, coins, shards etc.
+    are bit-identical to a run without this pass. Decorations live outside
+    `tiles.data`, so the level hash, physics, validator, and save format
+    cannot observe them (mirrors the `chunk_trace` precedent).
+
+    Density: at most 1 decoration per ~6 tiles (audit-guarded by tests)."""
+    import random
+    rng = random.Random(lvl.seed ^ 0xDEC0DE)
+    w, h = lvl.tiles.w, lvl.tiles.h
+    zone = config.zone_of(lvl.level_index)
+    out = []
+    # zone -> hanging / grounded decoration preference
+    hang = {0: "vine", 1: "stalactite", 2: "icicle", 3: "vine"}[zone]
+    ground = {0: "mushroom", 1: "torch", 2: "icicle", 3: "banner"}[zone]
+    step = 6                                   # >= 1 deco per 6 tiles cap
+    for ty in range(1, h - 1):
+        for tx in range(0, w, step):
+            # jitter within the step window so columns don't stripe
+            jx = tx + rng.randrange(step)
+            if jx >= w:
+                continue
+            tid = lvl.tiles.get(jx, ty)
+            up = lvl.tiles.get(jx, ty - 1)
+            if tid == T.EMPTY and up in T.SOLID_IDS:
+                # hanging from a ceiling underside
+                out.append((hang, jx, ty))
+            elif tid == T.SOLID and up not in T.SOLID_IDS:
+                # surface row: the tile's top is exposed -> stand one
+                # decoration on it (only the topmost solid row qualifies,
+                # so this fires at most once per column)
+                out.append((ground, jx, ty - 1))
+    lvl.decorations = out
+
+
 def generate_level(seed, difficulty, level_index=0):
     """Build a deterministic level. Same inputs -> byte-identical level."""
     rng = random.Random(seed)
@@ -1271,6 +1333,7 @@ def generate_level(seed, difficulty, level_index=0):
     b.level.seed = seed
     b.level.difficulty = diff
     b.level.level_index = level_index
+    _scatter_decorations(b.level)      # cosmetic; own RNG (Phase 3 T4)
     return b.level
 
 
@@ -1314,6 +1377,7 @@ def template_level(difficulty=0.5, level_index=0):
     b.level.seed = -1
     b.level.difficulty = max(0.0, min(1.0, difficulty))
     b.level.level_index = level_index
+    _scatter_decorations(b.level)      # cosmetic; own RNG (Phase 3 T4)
     return b.level
 
 

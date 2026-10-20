@@ -80,6 +80,13 @@ def zone_level_of(level_index):
     return max(0, level_index % LEVELS_PER_ZONE)
 
 
+def world_str(level_index):
+    """Zone-level display form shared by the HUD and the level-clear
+    screen ('2-5' = world 2, level 5). Single source of truth (bugfix:
+    the clear screen used to hardcode '1-{flat index}' -> '1-10')."""
+    return f"{zone_of(level_index) + 1}-{zone_level_of(level_index) + 1}"
+
+
 def difficulty_for(level_index):
     """Linear 0->1 across the full 20-level run (Phase 4a)."""
     return min(1.0, level_index / max(1, LEVELS_PER_RUN - 1))
@@ -308,6 +315,46 @@ FX_KEY = (120, 230, 255)
 AMBIENT_INTERVAL = 10            # ticks between ambient particles (4b)
 AMBIENT_COLORS = {"leaves": (96, 168, 64), "embers": (255, 140, 40),
                   "snow": (240, 248, 255), "rain": (150, 185, 235)}
+
+# -------------------------------------------- presentation layer (Phase 1)
+# Post-processing defaults (persisted as settings; see src/render/).
+VIGNETTE_ON = True               # radial edge darkening
+COLOR_GRADE_ON = True            # per-zone multiply tint
+SCANLINES_ON = False             # CRT-style scanlines (opt-in)
+VIGNETTE_ALPHA = 110             # corner darkening strength at full radius
+SCANLINE_ALPHA = 40              # scanline row alpha
+PULSE_TICKS = 14                 # damage red-pulse duration
+# Per-zone color-grade multiply tints (255 = unchanged); zone 0 = identity.
+GRADE_TINTS = (None,                          # Green Hills: neutral
+               (255, 231, 214),               # Ember Caves: warm
+               (222, 236, 255),               # Frost Peaks: cold
+               (228, 220, 244))               # Storm Keep: violet
+# Per-zone foreground silhouette tints (Phase 2 T5; fixed, not palette keys)
+FG_TINTS = ((14, 22, 14),                     # Green Hills: dark leaf
+            (26, 12, 10),                     # Ember Caves: dark ember rock
+            (18, 24, 34),                     # Frost Peaks: dark ice rock
+            (16, 14, 24))                     # Storm Keep: dark storm
+
+# ------------------------------------------------------ juice (Phase 5)
+# Hit-stop freeze frames: world updates pause (visual/game feel only —
+# still pure tick math, no RNG). Stomp/attack hits freeze the action
+# briefly; boss hits get the longest pause.
+HITSTOP_STOMP = 4
+HITSTOP_ATTACK = 3
+HITSTOP_BOSS = 5
+HITSTOP_HURT = 2
+# Player squash-and-stretch (visual only; hitbox never changes)
+SQUASH_LAND = 6                  # ticks of land squash (capped scale)
+SQUASH_STOMP = 8
+STRETCH_JUMP = 5
+# Afterimage trail: sample cadence + capacity + enable thresholds
+TRAIL_INTERVAL = 2               # sample every N ticks
+TRAIL_LEN = 6                    # ring buffer size
+TRAIL_RUN_FRAC = 0.92            # active above this fraction of max run
+TRAIL_FORM_TICKS = 14            # trail after a form swap
+# Feedback flourishes
+DESAT_TICKS = 6                  # boss phase-shift flash (presentation)
+GOAL_GLOW_TICKS = 36             # goal-gate unlock glow duration
 
 # ---------------------------------------------------- save / progression (4c)
 SAVE_PATH = "save/progress.json"   # project-local (D3); one line to relocate

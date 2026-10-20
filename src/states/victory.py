@@ -27,6 +27,11 @@ class VictoryState(State):
     def draw(self, surf):
         g = self.game
         surf.blit(g.assets.sky(), (0, 0))
+        surf.blit(g.assets.celestial(), (VIEW_W - 76, 18))
+        mts = g.assets.mountains()
+        mw = mts.get_width()
+        for x in range(-mw, VIEW_W + mw, mw):
+            surf.blit(mts, (x, VIEW_H - 104))
         clouds = g.assets.clouds()
         drift = int(self.t * 0.2) % clouds.get_width()
         surf.blit(clouds, (-drift, 0))

@@ -4,7 +4,7 @@ Level: owns the tile map, objects, spawn points and rendering.
 
 import pygame
 
-from src.config import TILE, VIEW_W, VIEW_H
+from src.config import GOAL_GLOW_TICKS, TILE, VIEW_W, VIEW_H
 from src.level import tiles as T
 from src.level.objects import Checkpoint, Coin, GoalGate, MovingPlatform, Pipe
 
@@ -41,6 +41,11 @@ class Level:
         # Informational generator telemetry only. It is deliberately not part
         # of level hashes, validator reachability, save state, or gameplay.
         self.chunk_trace = []
+        # Cosmetic overlay only (Phase 3 T4): list of (kind, tx, ty).
+        # NOT part of tiles.data -> invisible to the level hash, physics,
+        # the validator, and the save format (regenerated every run).
+        self.decorations = []
+        self.goal_glow = 0          # unlock flourish counter (Phase 5 T5)
 
     # ------------------------------------------------------------ geometry
     @property
@@ -155,6 +160,8 @@ class Level:
             d.tick(self)                # timed doors expire; latched no-op
         for h in self.dynamic_hazards:
             h.update()
+        if self.goal_glow > 0:           # unlock flourish decay (Phase 5 T5)
+            self.goal_glow -= 1
 
     # ---------------------------------------------------------------- draw
     def _tile_image(self, tid, tx, ty, assets, tick):
@@ -174,7 +181,7 @@ class Level:
         if tid == T.DOOR:
             return assets.door()
         if tid == T.LAVA:
-            return assets.lava((tick // 8) % 2)
+            return assets.lava((tick // 8) % 4)
         return None
 
     def draw(self, surf, cam, assets, tick):
@@ -192,6 +199,13 @@ class Level:
                 if img is not None:
                     surf.blit(img, (int(tx * TILE - ix),
                                     int(ty * TILE - iy)))
+        # decoration overlay (Phase 3 T4): cosmetic, culled like tiles
+        for kind, tx, ty in self.decorations:
+            if not (int(tx0) <= tx <= int(tx1)
+                    and int(ty0) <= ty <= int(ty1)):
+                continue
+            img = assets.decoration(kind, tick // 8)
+            surf.blit(img, (int(tx * TILE - ix), int(ty * TILE - iy)))
         for coin in self.coins:
             coin.draw(surf, cam, assets, tick)
         for k in self.key_shards:
@@ -210,3 +224,9 @@ class Level:
             h.draw(surf, cam, assets, tick)
         if self.goal is not None:
             self.goal.draw(surf, cam, assets, tick)
+            if self.goal_glow > 0:            # unlock flourish (Phase 5 T5)
+                img = assets.goal_glow().copy()   # copy: alpha mutated
+                img.set_alpha(int(150 * self.goal_glow / GOAL_GLOW_TICKS))
+                r = self.goal.rect
+                surf.blit(img, (r.centerx - img.get_width() // 2 - ix,
+                                r.centery - img.get_height() // 2 - iy))

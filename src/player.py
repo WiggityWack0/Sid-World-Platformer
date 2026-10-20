@@ -23,6 +23,13 @@ class Input:
 IDLE, RUN, SKID, JUMP, FALL, CROUCH, DEAD = (
     "idle", "run", "skid", "jump", "fall", "crouch", "dead")
 
+# afterimage ghosts (Phase 5 T3): tint applied via BLEND_RGB_MULT to a
+# frame copy, baked once per (frame, form) then alpha-frozen
+GHOST_TINT = (150, 200, 255)     # neutral Sid ghost (cool blue)
+GHOST_ALPHA = 72
+GHOST_CACHE_MAX = 64             # pinned by test_balance_audit (Phase 6)
+_GHOSTS = {}                     # (id(frame), form) -> tinted surface
+
 
 class Player:
     W = config.PLAYER_W
@@ -57,6 +64,14 @@ class Player:
         self.state = IDLE
         self.anim_t = 0
         self._on_mover = None
+        # visual-only juice (Phase 5): squash/stretch + afterimage trail.
+        # NEVER touches rect/hitbox — draw transforms only.
+        self.squash = 0                    # remaining ticks
+        self.squash_total = 1              # for the decay ratio
+        self.squash_kind = "land"          # land | stretch | stomp
+        self.form_flash = 0                # trail window after a form swap
+        self.trail = []                    # [(x, y, state, anim_t, facing)]
+        self._trail_t = 0
 
     # ------------------------------------------------------------- helpers
     @property
@@ -133,9 +148,18 @@ class Player:
         order = [None] + [f for f in config.FORMS if f in self.forms_unlocked]
         if self.form not in order:
             self.form = None
+            self.form_flash = config.TRAIL_FORM_TICKS   # swap trail (T3)
             return self.form
         self.form = order[(order.index(self.form) + 1) % len(order)]
+        self.form_flash = config.TRAIL_FORM_TICKS        # swap trail (T3)
         return self.form
+
+    def set_squash(self, ticks, kind):
+        """Start a visual squash/stretch (Phase 5 T2). Draw-only: the
+        hitbox never changes."""
+        self.squash = ticks
+        self.squash_total = max(1, ticks)
+        self.squash_kind = kind
 
     def queue_jump(self):
         self.buffer = config.JUMP_BUFFER_FRAMES
@@ -187,6 +211,9 @@ class Player:
         self.jumped = False
         self.cut_done = False
         self._on_mover = None
+        self.squash = 0                      # juice resets (Phase 5)
+        self.form_flash = 0
+        del self.trail[:]
 
     def _set_crouch(self, value, level):
         if value and not self.crouching:
@@ -210,6 +237,10 @@ class Player:
         events = []
         movers = level.mover_rects()
         self.anim_t += 1
+        if self.squash > 0:
+            self.squash -= 1                # visual decay (Phase 5 T2)
+        if self.form_flash > 0:
+            self.form_flash -= 1
         if self.invuln > 0:
             self.invuln -= 1
 
@@ -286,6 +317,7 @@ class Player:
             self.buffer = 0
             self.coyote = 0
             self.on_ground = False
+            self.set_squash(config.STRETCH_JUMP, "stretch")   # T2
         if (self.jumped and not inp.jump_held and self.vy < 0
                 and not self.cut_done):
             self.vy *= config.JUMP_CUT_FACTOR
@@ -306,10 +338,15 @@ class Player:
         self.y = new_y
         self.on_ground = False
         if landed:
+            impact = abs(self.vy)            # measured BEFORE the clamp
             self.vy = 0.0
             self.on_ground = True
             self.jumped = False
             self.cut_done = False
+            if not self.crouching and impact >= 1.5:
+                # land squash, proportional to fall speed, capped (T2)
+                self.set_squash(max(3, min(config.SQUASH_LAND,
+                                           int(impact))), "land")
             for m in level.movers:
                 if surface is m.rect:
                     self._on_mover = m
@@ -328,6 +365,24 @@ class Player:
             events.append(("hazard",))
 
         self._update_state(inp)
+        # afterimage trail sampling (Phase 5 T3): update-time, every N
+        # ticks, so it is deterministic regardless of frame rate. Drains
+        # when inactive so the ghosts fade out quickly. Speed-gated only —
+        # no state==RUN clause (bugfix: the sprint blur used to vanish the
+        # instant you jumped, because _update_state switches to JUMP/FALL
+        # the moment you leave the ground). Airborne/crouch slides at run
+        # speed now keep their afterimages; slowing down still drains.
+        dashing = abs(self.vx) >= self.max_run * config.TRAIL_RUN_FRAC
+        active = (dashing or self.form_flash > 0) and not self.dead
+        self._trail_t += 1
+        if self._trail_t % config.TRAIL_INTERVAL == 0:
+            if active:
+                self.trail.append((self.x, self.y, self.state,
+                                   self.anim_t, self.facing))
+                if len(self.trail) > config.TRAIL_LEN:
+                    del self.trail[0]
+            elif self.trail:
+                self.trail.pop(0)
         return events
 
     def _update_state(self, inp):
@@ -351,5 +406,42 @@ class Player:
     def draw(self, surf, cam, assets, tick):
         if self.invuln > 0 and not self.dead and (tick // 3) % 2 == 0:
             return                                   # i-frame flicker
+        # afterimage ghosts (Phase 5 T3): behind the player, tinted and
+        # translucent — cached per (frame, form), never mutated after build
+        for gx, gy, gstate, ganim, gfacing in self.trail:
+            gframe = assets.player_frame(gstate, ganim, gfacing)
+            key = (id(gframe), self.form)
+            ghost = _GHOSTS.get(key)
+            if ghost is None:
+                ghost = gframe.copy()
+                tint = (config.FORM_COLORS.get(self.form, GHOST_TINT)
+                        if self.form else GHOST_TINT)
+                ghost.fill(tint, special_flags=pygame.BLEND_RGB_MULT)
+                ghost.set_alpha(GHOST_ALPHA)
+                if len(_GHOSTS) >= GHOST_CACHE_MAX:
+                    _GHOSTS.clear()
+                _GHOSTS[key] = ghost
+            surf.blit(ghost, (int(gx) - 2 - cam.ix, int(gy) - cam.iy))
         frame = assets.player_frame(self.state, self.anim_t, self.facing)
-        surf.blit(frame, (int(self.x) - 2 - cam.ix, int(self.y) - cam.iy))
+        bx, by = int(self.x) - 2, int(self.y)
+        sx, sy = self._draw_scale()
+        if (sx, sy) != (1.0, 1.0):
+            # squash/stretch (Phase 5 T2): visual transform only, feet
+            # stay planted (blit y compensates the height delta)
+            w, h = frame.get_size()
+            nw, nh = max(1, round(w * sx)), max(1, round(h * sy))
+            frame = pygame.transform.scale(frame, (nw, nh))
+            bx -= (nw - w) // 2               # keep horizontally centered
+            by -= (nh - h)                    # feet anchored
+        surf.blit(frame, (bx - cam.ix, by - cam.iy))
+
+    def _draw_scale(self):
+        """(sx, sy) for the current squash window; (1.0, 1.0) when idle."""
+        if self.squash <= 0:
+            return 1.0, 1.0
+        k = self.squash / float(self.squash_total)
+        if self.squash_kind == "stretch":
+            return 1.0 - 0.18 * k, 1.0 + 0.22 * k   # tall & narrow
+        if self.squash_kind == "stomp":
+            return 1.0 + 0.28 * k, 1.0 - 0.24 * k   # big flat impact
+        return 1.0 + 0.22 * k, 1.0 - 0.18 * k       # land squash

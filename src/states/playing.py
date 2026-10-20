@@ -1,5 +1,7 @@
 """Core gameplay state: level, player, enemies, combat, items, camera."""
 
+import math
+
 import pygame
 
 from src import inputs
@@ -7,17 +9,19 @@ from src import progress as progress_mod
 from src.config import (AMBIENT_INTERVAL, ATTACK_COOLDOWN, BREAK_SCORE,
                         COIN_CLEAR_BONUS,
                         COIN_SCORE, COINS_PER_LIFE, FORM_KILL_SCORE,
-                        FX_HURT, FX_ICE_TINT, HURT_TRAUMA,
+                        FX_HURT, FX_ICE_TINT, GOAL_GLOW_TICKS, HURT_TRAUMA,
+                        HITSTOP_ATTACK, HITSTOP_BOSS, HITSTOP_HURT,
+                        HITSTOP_STOMP,
                         ICE_FREEZE_TICKS, KICK_SCORE, LIGHTNING_MAX_TARGETS,
                         LIGHTNING_RADIUS,
                         PLAYER_H, PRIMER_TICKS, RUN_DUST_INTERVAL,
                         SHARD_SCORE,
-                        SHAKE_DEATH, STAR_KILL_SCORE, TILE,
+                        SHAKE_DEATH, STAR_KILL_SCORE, SQUASH_STOMP, TILE,
                         STOMP_BOUNCE, STOMP_BOUNCE_HOLD,
                         STOMP_SCORE, TIME_BONUS_PER_UNIT,
                         TIME_INTERVAL_FRAMES, VIEW_H, VIEW_W, ZONES,
                         WARP_ENTER_FRAMES, difficulty_for, time_for,
-                        zone_level_of, zone_of)
+                        world_str, zone_level_of, zone_of)
 from src.attacks import AttackProjectile
 from src.camera import Camera
 from src.enemies import contact_result
@@ -53,6 +57,9 @@ class PlayingState(State):
         self._boss_seen = False           # intro banner + music once
         self._banner_t = 0                # WARNING banner countdown
         self._cleared = False
+        self.hitstop = 0                  # freeze frames (Phase 5 T1)
+        self._boss_hp_seen = None         # boss-watch baselines (Phase 5)
+        self._boss_phase_seen = None
         self.game.playing = self
         self._primer_t = 0                # zone-primer banner (6c)
         self._tutorial_t = 0              # tutorial hint cadence (6c)
@@ -107,6 +114,7 @@ class PlayingState(State):
         self.player.die(cause)
         self.game.fx.explosion(self.player.cx, self.player.cy)
         self.game.fx.add_trauma(SHAKE_DEATH)
+        self.game.presentation.pulse()          # damage vignette (Phase 1)
         self.game.audio.stop_music(fade=80)
         self.game.audio.play_sfx("death")
 
@@ -117,12 +125,23 @@ class PlayingState(State):
         g = self.game
         g.fx.floater(self.player.cx, self.player.cy - 18, "-1", FX_HURT)
         g.fx.add_trauma(HURT_TRAUMA)
+        g.presentation.pulse()                  # damage vignette (Phase 1)
+        self.hitstop = max(self.hitstop, HITSTOP_HURT)   # freeze (Phase 5)
         g.audio.play_sfx("hurt")
 
     def _respawn(self):
         self.player.respawn_at(*self.respawn)
         self.enemies.reset()
         self.attacks = []
+        self.hitstop = 0
+        self._boss_hp_seen = None              # fresh boss baselines
+        self._boss_phase_seen = None
+        if self.time_left <= 0:
+            # bugfix: a timeout death used to respawn with time_left == 0
+            # and instantly die again (infinite death -> game over). Give a
+            # fresh level timer; non-timeout deaths keep remaining time.
+            self.time_left = time_for(self.game.run.level_index)
+            self.timer_ticks = 0
         self.camera.snap_to(self.player.rect)
         self.warp_hold = 0
         self.game.audio.play_music(self._music_for_level())
@@ -148,6 +167,13 @@ class PlayingState(State):
         player = self.player
         fx = self.game.fx
         self.camera.set_shake(*fx.shake_offset())
+        # boss watch runs even while frozen so hp/phase drops upgrade an
+        # in-flight hit-stop instead of stacking a second wave (Phase 5)
+        self._boss_watch()
+        if self.hitstop > 0 and not player.dead:
+            # freeze-frame: world updates pause, the state still draws
+            self.hitstop -= 1
+            return
         self.level.update()
         self._tutorial_t += 1
         self._tutorial_tick()
@@ -256,6 +282,7 @@ class PlayingState(State):
                 else:
                     enemy.start_dying()   # elemental: beats STOMP_PROOF
                     killed = True
+                    self.hitstop = max(self.hitstop, HITSTOP_ATTACK)
                 if killed:
                     g.run.score += FORM_KILL_SCORE
                 g.fx.spark(enemy.rect.centerx, enemy.rect.centery)
@@ -272,6 +299,7 @@ class PlayingState(State):
         if getattr(enemy, "is_boss", False):
             return enemy.take_damage(1)
         enemy.start_dying()
+        self.hitstop = max(self.hitstop, HITSTOP_ATTACK)   # freeze-frame
         return True
 
     def _start_zone_primer(self):
@@ -309,6 +337,29 @@ class PlayingState(State):
             self.game.fx.floater(self.player.cx, self.player.y - 24,
                                  text)
 
+    def _boss_watch(self):
+        """Phase 5 hit-stop/flash monitor: runs EVERY tick (even while
+        frozen) so an hp/phase change upgrades the current freeze wave
+        instead of stacking a second one after it expires. Records the
+        first sighting without firing (bosses damaged before any tick —
+        scripted tests — never trigger a freeze)."""
+        boss = None
+        for e in self.enemies.enemies:
+            if getattr(e, "is_boss", False):
+                boss = e
+                break
+        if boss is None or boss.state == "dying":
+            self._boss_hp_seen = None
+            self._boss_phase_seen = None
+            return
+        if self._boss_hp_seen is not None and boss.hp < self._boss_hp_seen:
+            self.hitstop = max(self.hitstop, HITSTOP_BOSS)
+        if (self._boss_phase_seen is not None
+                and boss.phase > self._boss_phase_seen):
+            self.game.presentation.desat()       # phase-shift flash (T5)
+        self._boss_hp_seen = boss.hp
+        self._boss_phase_seen = boss.phase
+
     def _boss_tick(self):
         """Boss framework hook (5b): intro banner/music, defeat explosions,
         goal unlock. Duck-typed via `is_boss` — no isinstance dispatch."""
@@ -337,6 +388,7 @@ class PlayingState(State):
                 progress_mod.save(g.progress)
                 g.fx.floater(lvl.goal.rect.centerx, lvl.goal.rect.top - 14,
                              "GOAL OPEN!")
+                lvl.goal_glow = GOAL_GLOW_TICKS    # unlock flourish (T5)
                 g.fx.add_trauma(0.4)
                 g.audio.play_sfx("checkpoint")
                 g.audio.play_music(self._music_for_level())
@@ -393,6 +445,7 @@ class PlayingState(State):
                                  else STOMP_BOUNCE)
                     player.jumped = True
                     player.cut_done = False
+                    player.set_squash(SQUASH_STOMP, "stomp")   # T2
                     if outcome == "kick":
                         run.score += KICK_SCORE
                         self.game.audio.play_sfx("kick")
@@ -406,6 +459,8 @@ class PlayingState(State):
                         self.game.audio.play_sfx("bounce")
                     self.game.fx.stomp_puff(enemy.rect.centerx,
                                             enemy.rect.bottom)
+                    if outcome != "bounce":         # kills freeze; blocks
+                        self.hitstop = max(self.hitstop, HITSTOP_STOMP)
             elif result == "hurt":
                 if player.star_active and self._attack_kill(enemy):
                     # star: contact kills (no damage, stomp branch untouched)
@@ -450,6 +505,7 @@ class PlayingState(State):
                     self.game.fx.add_trauma(0.25)
                     self.game.fx.floater(k.rect.centerx, k.rect.y - 20,
                                          "GOAL OPEN!")
+                    self.level.goal_glow = GOAL_GLOW_TICKS  # flourish (T5)
                     self.game.audio.play_sfx_at(
                         "checkpoint", self.level.goal.rect.centerx,
                         player.cx)                              # spatial 6c
@@ -537,12 +593,58 @@ class PlayingState(State):
                 self._kill("time")
 
     # ---------------------------------------------------------------- draw
+    def _sky_events(self, surf, assets, tick, cam):
+        """Per-zone deterministic sky events behind the world (Phase 2 T4).
+
+        Pure tick-math (no RNG) so replays and tests stay deterministic;
+        each event is a handful of precomputed-surface blits."""
+        aurora = assets.aurora()
+        if aurora is not None:                       # Frost Peaks shimmer
+            aw = aurora.get_width()
+            aoff = int(cam.x * 0.06 + tick * 0.25) % aw
+            surf.blit(aurora, (-aoff, 6 - int(cam.y * 0.1)))
+            surf.blit(aurora, (aw - aoff, 6 - int(cam.y * 0.1)))
+        veil = assets.rain_veil()
+        if veil is not None:                         # Storm Keep distance
+            vw, vh = veil.get_width(), veil.get_height()
+            voff = int(cam.x * 0.08) % vw
+            scroll = int(tick * 1.6) % vh
+            for x in range(-voff - vw, VIEW_W + vw, vw):
+                surf.blit(veil, (x, -scroll - int(cam.y * 0.1)))
+                surf.blit(veil, (x, vh - scroll - int(cam.y * 0.1)))
+        zone = assets.zone
+        if zone == 0:                                # Green Hills pollen
+            for i in range(6):
+                px = int(cam.x * 0.3 + tick * (0.4 + 0.1 * i)
+                         + i * 71) % (VIEW_W + 40) - 20
+                py = int(40 + 60 * ((i * 37 % 100) / 100.0)
+                         + 14 * math.sin(tick * 0.03 + i * 1.7)
+                         - cam.y * 0.2) % (VIEW_H - 80)
+                surf.set_at((max(0, min(VIEW_W - 1, px)),
+                             max(0, min(VIEW_H - 1, py))), (235, 244, 190))
+        elif zone == 1:                              # Ember Caves lightning
+            phase = tick % 660                       # ~11 s cycle at 60 Hz
+            if phase < 4:
+                flash = (90, 40, 60, 26) if phase % 2 else (140, 90, 110, 40)
+                layer = pygame.Surface((VIEW_W, VIEW_H), pygame.SRCALPHA)
+                layer.fill(flash)
+                surf.blit(layer, (0, 0))
+
     def draw(self, surf):
         g = self.game
         cam = self.camera
         tick = g.tick
         assets = g.assets.for_zone(zone_of(g.run.level_index))   # 4b theme
         surf.blit(assets.sky(), (0, 0))
+        cel = assets.celestial()                  # Phase 2 T2: sun/moon disc
+        surf.blit(cel, (VIEW_W - 76 - int(cam.x * 0.04) % VIEW_W,
+                        18 - int(cam.y * 0.1)))
+        mts = assets.mountains()                   # Phase 2 T2: far layer
+        mw = mts.get_width()
+        moff = int(cam.x * 0.12) % mw
+        y_mt = VIEW_H - 104 + int(cam.y * 0.15)
+        for x in range(-moff - mw, VIEW_W + mw, mw):
+            surf.blit(mts, (x, y_mt))
         clouds = assets.clouds()
         cw = clouds.get_width()
         drift = int(cam.x * 0.1 + tick * 0.1) % cw
@@ -561,6 +663,7 @@ class PlayingState(State):
         y_near = VIEW_H - 72 + int(cam.y * 0.35)
         for x in range(-off - nw, VIEW_W + nw, nw):
             surf.blit(near, (x - cam.shake_dx, y_near - cam.shake_dy))
+        self._sky_events(surf, assets, tick, cam)  # Phase 2 T4: per-zone
 
         self.level.draw(surf, cam, assets, tick)
         self.enemies.draw(surf, cam, assets, tick)
@@ -574,16 +677,25 @@ class PlayingState(State):
             atk.draw(surf, cam, assets, tick)
         self.player.draw(surf, cam, assets, tick)
         g.fx.draw(surf, cam)
+        # foreground silhouette (Phase 2 T5): after world/fx, before HUD;
+        # 1.2x parallax, shake with the view, capped at 16px bottom cover
+        fg = assets.foreground()
+        gw = fg.get_width()
+        goff = int(cam.x * 1.2) % gw
+        y_fg = VIEW_H - 16 + int(cam.y * 0.02)
+        for x in range(-goff - gw, VIEW_W + gw, gw):
+            surf.blit(fg, (x - cam.shake_dx, y_fg - cam.shake_dy))
         run = g.run
         pl = self.player
         idx = run.level_index
         g.hud.draw(surf, run.score, run.coins, run.lives, self.time_left,
-                   f"{zone_of(idx) + 1}-{zone_level_of(idx) + 1}",
+                   world_str(idx),
                    pl.hearts, pl.max_hearts,
                    (pl.active_powerup, pl.powerup_frac)
                    if pl.active_powerup else None,
                    (self.level.shards_collected, self.level.required)
-                   if self.level.required else None)
+                   if self.level.required else None,
+                   tick=tick)
         boss = self._boss
         if (boss is not None and boss.alive and boss.active
                 and boss.state != "dying"):

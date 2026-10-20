@@ -10,8 +10,10 @@ import pygame
 
 from src import inputs
 from src import progress as progress_mod
-from src.config import (FIXED_DT, FPS, LEVELS_PER_RUN, START_LIVES,
-                        VIEW_H, VIEW_W, WINDOW_H, WINDOW_W)
+from src.config import (FIXED_DT, FPS, GRADE_TINTS, LEVELS_PER_RUN,
+                        START_LIVES,
+                        VIEW_H, VIEW_W, WINDOW_H, WINDOW_W, zone_of)
+from src.render import Presentation
 from src.transition import Transition
 
 
@@ -45,13 +47,18 @@ class Game:
         from src.audio import AudioManager
         from src.effects import Effects
         from src.hud import Hud
+        from src.render.menu import MenuPanel
         self.assets = AssetFactory()
         self.audio = AudioManager()
         self.hud = Hud()
         self.fx = Effects()
+        self.menu = MenuPanel(self.hud)   # shared menu component (Phase 4)
+        self.presentation = Presentation()   # post-processing (Phase 1)
         self.seed = seed if seed is not None else random.randrange(100000)
         self.progress = progress_mod.load()   # tolerant; never crashes (4c)
         self.audio.apply_settings(self.progress["settings"])  # live (6a)
+        self.presentation.apply_settings(self.progress["settings"])
+        self.refresh_window()                 # honor saved window_scale
         self.run = None
         self.state = None
         self.state_name = ""
@@ -90,9 +97,27 @@ class Game:
     def switch_state(self, name, **kwargs):
         if (self.transition is not None and self.state is not None
                 and not self.transition.active):
-            self.transition.start((name, kwargs))   # deferred to black (6b)
+            style, tint = self._transition_style(name)
+            # deferred to black (6b); style is draw-shape only (Phase 5 T4)
+            self.transition.start((name, kwargs), style=style, tint=tint)
             return
         self._switch_state_now(name, **kwargs)
+
+    def _transition_style(self, name):
+        """(style, tint) for a pending switch — pure visual mapping.
+        level_clear -> wipe; game_over (the death screen) -> iris; zone
+        change on level entry -> zone_fade tinted with the new zone;
+        everything else -> plain fade."""
+        if name == "level_clear":
+            return "wipe", None
+        if name == "game_over":
+            return "iris", None
+        if name == "playing" and self.run is not None:
+            zone = zone_of(self.run.level_index)
+            if zone != getattr(self, "_last_zone", 0):
+                tint = GRADE_TINTS[zone] if zone < len(GRADE_TINTS) else None
+                return "zone_fade", tint
+        return "fade", None
 
     def _switch_state_now(self, name, **kwargs):
         if self.state is not None:
@@ -100,6 +125,9 @@ class Game:
         cls = self._state_classes[name]
         self.state = cls(self)
         self.state_name = name
+        if name == "playing" and self.run is not None:
+            # remember the zone for the next entry (Phase 5 T4 zone_fade)
+            self._last_zone = zone_of(self.run.level_index)
         self.state.on_enter(**kwargs)
 
     def tick_transition(self):
@@ -135,6 +163,11 @@ class Game:
 
     def quit(self):
         self.running = False
+
+    def refresh_window(self):
+        """Re-create the window at the presentation layer's saved scale."""
+        scale = self.presentation.window_scale
+        self.window = pygame.display.set_mode((VIEW_W * scale, VIEW_H * scale))
 
     # ---------------------------------------------------------------- input
     def _dispatch(self, event):
@@ -185,8 +218,13 @@ class Game:
             if not self.running:
                 break
             self.state.draw(self.surface)
+            # post-process before the upscale; zone grade only in play (1)
+            zone = (zone_of(self.run.level_index)
+                    if self.run is not None
+                    and self.state_name in ("playing", "paused") else 0)
+            self.presentation.apply(self.surface, zone)
             scaled = pygame.transform.scale(self.surface,
-                                            (WINDOW_W, WINDOW_H))
+                                            self.window.get_size())
             self.window.blit(scaled, (0, 0))
             if self.transition is not None:
                 self.transition.draw(self.window)

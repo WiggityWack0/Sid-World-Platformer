@@ -100,12 +100,24 @@ class LevelSelectState(State):
         dim.fill((0, 0, 0, 120))
         surf.blit(dim, (0, 0))
         hud = game.hud
+        tick = game.tick
 
         zone = self.cursor // LEVELS_PER_ZONE
-        hud.text_center(surf, VIEW_W // 2, 20, "LEVEL SELECT",
+        hud.text_center(surf, VIEW_W // 2, 14, "LEVEL SELECT",
                         (255, 226, 96), hud.big_font)
         hud.text_center(surf, VIEW_W // 2, 44,
                         f"ZONE {zone + 1}: {ZONES[zone]['name']}")
+
+        # path lines between consecutive nodes (Phase 4 T5): drawn under
+        # the nodes, tinted by the destination zone's accent, dimmed when
+        # the destination is still locked
+        for idx in range(1, LEVELS_PER_RUN):
+            a = self.node_rect(idx - 1).center
+            b = self.node_rect(idx).center
+            acc = _accent(idx // LEVELS_PER_ZONE)
+            if not progress.is_unlocked(game.progress, idx):
+                acc = tuple(c // 3 for c in acc)
+            pygame.draw.line(surf, acc, a, b, 1)
 
         for idx in range(LEVELS_PER_RUN):
             rect = self.node_rect(idx)
@@ -114,19 +126,39 @@ class LevelSelectState(State):
             body = accent if unlocked else (58, 62, 78)
             pygame.draw.rect(surf, body, rect)
             pygame.draw.rect(surf, (20, 24, 40), rect, 1)
+            if not unlocked:                       # locked dim overlay
+                ov = pygame.Surface(rect.size, pygame.SRCALPHA)
+                ov.fill((0, 0, 0, 90))
+                surf.blit(ov, rect.topleft)
             if self.is_boss(idx):
-                hud.text_center(surf, rect.centerx, rect.centery - 5,
-                                "B", (255, 255, 255) if unlocked
-                                else (110, 114, 130))
+                # danger glyph (Phase 4 T5): triangle + "!" instead of "B"
+                cx, cy = rect.centerx, rect.centery - 5
+                col = (255, 255, 255) if unlocked else (110, 114, 130)
+                pygame.draw.polygon(surf, (232, 64, 72) if unlocked
+                                    else (90, 60, 70),
+                                    [(cx, cy - 6), (cx + 6, cy + 4),
+                                     (cx - 6, cy + 4)])
+                hud.text_center(surf, cx, cy - 3, "!", col, hud.font)
             elif not unlocked:
                 pygame.draw.rect(surf, (34, 38, 54), rect.inflate(-8, -8), 1)
-            if idx == self.cursor:
-                pygame.draw.rect(surf, (255, 255, 255), rect.inflate(6, 6), 2)
             label = str(idx % LEVELS_PER_ZONE + 1)
             hud.text_center(surf, rect.centerx, rect.bottom + 3, label)
+            # unlocked glint on the cursor node (Phase 4 T5)
+            if idx == self.cursor and unlocked and (tick // 12) % 2 == 0:
+                gx, gy = rect.right - 3, rect.top + 2
+                for dx, dy in ((0, 0), (1, -1), (-1, -1), (1, 1), (-1, 1),
+                               (0, -2), (0, 2)):
+                    surf.set_at((gx + dx, gy + dy), (255, 255, 255))
+            if idx == self.cursor:
+                # cursor: arrow sprite left of the node + white border
+                game.menu._cursor(surf, rect.left - 9, rect.centery - 3,
+                                  tick, 255)
+                pygame.draw.rect(surf, (255, 255, 255), rect.inflate(6, 6), 2)
 
         cursor_zone = _accent(zone)
         best = self.best_score(self.cursor)
+        # info footer on a panel (Phase 4 T4 component)
+        game.menu.panel(surf, VIEW_W // 2 - 110, VIEW_H - 60, 220, 46)
         hud.text_center(surf, VIEW_W // 2, VIEW_H - 52,
                         f"LEVEL {self.cursor + 1}"
                         f"{'  (BOSS)' if self.is_boss(self.cursor) else ''}",

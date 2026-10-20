@@ -13,7 +13,8 @@ import os
 
 from src import config
 from src.config import (LEVELS_PER_RUN, MASTER_VOLUME, MUSIC_VOLUME,
-                        SFX_VOLUME)
+                        SFX_VOLUME, COLOR_GRADE_ON, SCANLINES_ON,
+                        VIGNETTE_ON, WINDOW_SCALE)
 
 # Migrations: {from_version: callable(data) -> data (at from_version + 1)}.
 # Applied in ascending order during load() when schema_version < current.
@@ -32,6 +33,11 @@ def default_progress():
             "sfx_volume": SFX_VOLUME,
             "muted": False,
             "tutorial_enabled": True,
+            # presentation layer (Phase 1)
+            "vignette": VIGNETTE_ON,
+            "color_grade": COLOR_GRADE_ON,
+            "scanlines": SCANLINES_ON,
+            "window_scale": WINDOW_SCALE,
         },
         "tutorial_seen": [],
         "current_run": None,
@@ -63,10 +69,14 @@ def _sanitize(data):
             if isinstance(v, (int, float)) and not isinstance(v, bool) \
                     and 0.0 <= v <= 1.0:
                 out["settings"][vol] = float(v)
-        for flag in ("muted", "tutorial_enabled"):
+        for flag in ("muted", "tutorial_enabled",
+                     "vignette", "color_grade", "scanlines"):
             v = st.get(flag)
             if isinstance(v, bool):
                 out["settings"][flag] = v
+        ws = st.get("window_scale")
+        if _is_int(ws) and ws in (2, 3, 4):
+            out["settings"]["window_scale"] = ws
     seen = data.get("tutorial_seen")
     if isinstance(seen, list):
         out["tutorial_seen"] = [s for s in seen if isinstance(s, str)]

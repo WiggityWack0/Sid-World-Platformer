@@ -124,6 +124,20 @@ shrink, i-frame flicker on damage/respawn.
   8 original chiptune tracks (title, A/B, C/D/E zone themes, boss, +
   jingles) � all compositions original.
 
+* **Visual overhaul (2026-10, Phases 0-6):** baked 5x7 pixel font (no
+  system fonts anywhere in the render path), a post-processing presentation
+  layer (per-zone color grade, vignette, optional scanlines, damage pulse,
+  2x/3x/4x window scale — all toggled in Options), dithered skies with a
+  far-mountains layer + sun/moon, textured hills + per-zone sky events,
+  foreground silhouettes, reworked terrain (gradients, snow lips / ember
+  cracks / wet sheen), decorative overlay sprites (hash/validator-
+  invisible), 4-frame lava, shared menu panels with an animated cursor, a
+  drawn title logo with shine sweep, level-select path + danger glyphs +
+  glints, and gameplay juice: hit-stop, squash-and-stretch, afterimage
+  trails, iris/wipe/zone-fade transitions, boss phase flashes, goal-unlock
+  glow. Steady-state frame cost ~0.4 ms vs the 0.6 ms budget. Visual-code
+  rules: **`docs/ART_STYLE.md`**.
+
 ## How procedural generation works
 
 * Levels are stitched left->right from a library of **28 hand-authored chunks**
@@ -180,6 +194,9 @@ src/
   attacks.py         form attack projectiles (fire/ice)
   enemy_manager.py   camera activation, shells vs enemies, projectile drain
   hud.py             SMW row + hearts + power-up bar + boss bar + objective
+  render/            presentation layer (vignette / zone color grade /
+                     scanlines / damage pulse / window scale) + shared
+                     MenuPanel menu component
   effects/           pooled particles, screen shake, floaters
   states/            title, playing, paused, level_select, options,
                      level_clear, game_over, victory
@@ -187,24 +204,29 @@ src/
   enemies/           base FSM; walker, shellback, flyer, chaser, spitter,
                      jumper, shieldkin, bomber, wallcrawler, charger,
                      needler; boss.py base + bosses/ (4 concrete)
-  assets/            runtime pixel-art factory (+ per-zone themed caches)
+  assets/            runtime pixel-art factory (+ per-zone themed caches),
+                     baked 5x7 pixel font, decorations, background layers
   audio/             SFX synth, music synth (8 tracks), mixer manager
                      (volumes, mute, spatial SFX, graceful degradation)
-tests/               715 headless-safe tests (SDL dummy drivers; 444 fast,
-                     271 slow)
+tests/               560 fast + 271 slow headless-safe tests (SDL dummy
+                     drivers; 831 total — see the Testing section)
+tools/               screenshot rig (deterministic 15-shot gallery, dev-only)
 docs/SAVE_FORMAT.md  save-file documentation
+docs/ART_STYLE.md    art + visual-code rules (grid, palette discipline,
+                     presentation/juice constraints, recipes, test doctrine)
 ````
 
 * Updates run on a **fixed 60 Hz accumulator** decoupled from rendering,
   so physics is deterministic and validator proofs stay meaningful.
-* Rendering happens on a 320x240 virtual surface scaled with
+* Rendering happens on a **400x240** virtual surface scaled with
   `pygame.transform.scale` (integer, never smoothed); off-camera
   tiles/entities are culled. Pooled effects and capped audio channels
-  keep per-frame cost ~0.6 ms headless (audited, Session 24).
+  keep per-frame cost ~0.4 ms headless (re-audited across all four zones,
+  Phase 6 — see ProjectPlan.md).
 
 ## Testing
 
-`tests/` holds **722 headless-safe tests** across 28 files:
+`tests/` holds **831 headless-safe tests** across 35 files:
 
 1. **Generator fuzz** (260 seeds x difficulties, all 20 levels) �
    validator-proven completability, entity rules, length bounds,
@@ -228,6 +250,12 @@ docs/SAVE_FORMAT.md  save-file documentation
 9. **Pacing/flat-tail regression** — breather exhaustion must continue
    stitching, last-resort filler must not create flat runways, and
    representative long levels must not end with oversized plain-ground tails.
+10. **Visual overhaul** (Phases 0-6) — pixel-font metrics, HUD plates and
+    shared menu panels, presentation layers (tick-deterministic), backgrounds + tile
+    dressing (tileability, palette contracts), decoration invariants
+    (hash/validator-invisible), juice (hit-stop/squash/trail/transition
+    contracts), and the pixel-test catalog sweep (exact-render obligations
+    recorded in ProjectPlan.md).
 
 ## Notes & honest limitations
 
@@ -243,8 +271,8 @@ docs/SAVE_FORMAT.md  save-file documentation
   anti-fatigue cap and the stitch loop stopped early. Slice 8 now continues
   normal chunk selection when a breather is unavailable and uses a last-resort
   safe filler only when the normal chunk pool is exhausted.
-* Fast suite runtime ~143 s (`python run_tests.py`; 451 tests, 271 slow tests
-  deselected) on the dev machine.
-* Full suite runtime ~486 s (`python run_tests.py --full`; 722 tests) on the
-  dev machine.
+* Fast suite runtime ~160 s (`python run_tests.py`; 560 tests, 271 slow
+  tests deselected) on the dev machine.
+* Full suite runtime ~463 s (`python run_tests.py --full`; 831 tests) on
+  the dev machine.
 

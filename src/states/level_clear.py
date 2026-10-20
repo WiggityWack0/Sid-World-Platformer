@@ -5,7 +5,7 @@ import pygame
 from src import inputs
 from src import progress
 from src.config import (COIN_CLEAR_BONUS, LEVELS_PER_RUN, TIME_BONUS_PER_UNIT,
-                        VIEW_H, VIEW_W)
+                        VIEW_H, VIEW_W, world_str)
 from src.states.base import State
 
 
@@ -29,8 +29,10 @@ class LevelClearState(State):
     def handle_event(self, event):
         if event.type != pygame.KEYDOWN or event.key == pygame.K_m:
             return
-        if inputs.key_to_action(event.key) == "confirm" \
-                and self.phase == "done":
+        if inputs.key_to_action(event.key) == "confirm":
+            if self.phase != "done":
+                self._skip_tally()          # bugfix: don't force the wait
+                return
             run = self.game.run
             progress.record_clear(self.game.progress, run.level_index,
                                   run.score)      # unlock + best score (4c)
@@ -43,6 +45,18 @@ class LevelClearState(State):
                                        new_best=self.new_best)   # 6b
             else:
                 self.game.switch_state("playing")
+
+    def _skip_tally(self):
+        """Finish the bonus countdown instantly on confirm (bugfix): adds
+        exactly the remaining time/coin bonuses once, then 'done' (later
+        ticks add nothing — phase guards)."""
+        run = self.game.run
+        run.score += self.tally_time * TIME_BONUS_PER_UNIT
+        run.score += self.tally_coins * COIN_CLEAR_BONUS
+        self.tally_time = 0
+        self.tally_coins = 0
+        self.phase = "done"
+        self.game.audio.play_sfx("select", vol=0.6)
 
     def update(self):
         self.t += 1
@@ -75,7 +89,7 @@ class LevelClearState(State):
         hud.text_center(surf, VIEW_W // 2, 44, "COURSE CLEAR!",
                         (255, 226, 96), hud.big_font)
         hud.text_center(surf, VIEW_W // 2, 92,
-                        f"WORLD 1-{run.level_index + 1}")
+                        f"WORLD {world_str(run.level_index)}")
         hud.text_center(surf, VIEW_W // 2, 118,
                         f"TIME BONUS  {self.tally_time * TIME_BONUS_PER_UNIT:05d}")
         hud.text_center(surf, VIEW_W // 2, 140,

@@ -29,9 +29,11 @@ class Floaters:
     @property
     def font(self):
         # Lazy: font creation deferred until first draw (tests of the
-        # lifecycle don't need fonts; mirrors Hud's SysFont choice).
+        # lifecycle don't need fonts). PixelFont (Phase 4) replaces the
+        # old SysFont — same render() duck type.
         if self._font is None:
-            self._font = pygame.font.SysFont("consolas", 11, bold=True)
+            from src.assets.pixel_font import PixelFont
+            self._font = PixelFont(1)
         return self._font
 
     def spawn(self, x, y, text, color=None):
@@ -67,7 +69,9 @@ class Floaters:
         ix, iy = cam.ix, cam.iy
         for i in range(self._count):
             f = self._pool[i]
-            img = self.font.render(f.text, True, f.color)
+            # copy: PixelFont.render returns a shared cached surface and
+            # set_alpha must never mutate the cache (Phase 4)
+            img = self.font.render(f.text, True, f.color).copy()
             img.set_alpha(int(255 * f.life / f.max_life))
             surf.blit(img, (int(f.x) - ix - img.get_width() // 2,
                             int(f.y) - iy))

@@ -30,6 +30,8 @@ class GameOverState(State):
         dim = pygame.Surface((VIEW_W, VIEW_H), pygame.SRCALPHA)
         dim.fill((20, 0, 0, 190))
         surf.blit(dim, (0, 0))
+        # content on a shared menu panel (Phase 4 T4)
+        self.game.menu.panel(surf, VIEW_W // 2 - 130, 62, 260, 140)
         hud = self.game.hud
         hud.text_center(surf, VIEW_W // 2, 80, "GAME OVER",
                         (255, 96, 88), hud.big_font)

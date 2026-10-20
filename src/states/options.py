@@ -13,14 +13,20 @@ class OptionsState(State):
     name = "options"
 
     ROWS = ("master_volume", "music_volume", "sfx_volume",
-            "muted", "tutorial_enabled")
+            "muted", "tutorial_enabled",
+            "vignette", "color_grade", "scanlines", "window_scale")
     LABELS = {
         "master_volume": "MASTER VOLUME",
         "music_volume": "MUSIC VOLUME",
         "sfx_volume": "SFX VOLUME",
         "muted": "MUTE",
         "tutorial_enabled": "TUTORIAL",
+        "vignette": "VIGNETTE",
+        "color_grade": "COLOR GRADE",
+        "scanlines": "SCANLINES",
+        "window_scale": "WINDOW SIZE",
     }
+    SCALES = (2, 3, 4)              # window_scale cycles through these
 
     def on_enter(self, **kwargs):
         self.sel = 0
@@ -32,6 +38,8 @@ class OptionsState(State):
 
     def _apply(self):
         self.game.audio.apply_settings(self._settings())
+        self.game.presentation.apply_settings(self._settings())
+        self.game.refresh_window()               # window_scale may have changed
         progress.save(self.game.progress)
 
     def _adjust(self, key, direction):
@@ -39,6 +47,9 @@ class OptionsState(State):
         if key in ("master_volume", "music_volume", "sfx_volume"):
             st[key] = round(min(1.0, max(0.0,
                               st[key] + direction * VOLUME_STEP)), 2)
+        elif key == "window_scale":
+            i = self.SCALES.index(st[key]) if st[key] in self.SCALES else 1
+            st[key] = self.SCALES[(i + direction) % len(self.SCALES)]
         else:
             st[key] = not st[key]
         self.game.audio.play_sfx("select", vol=0.5)
@@ -81,21 +92,24 @@ class OptionsState(State):
     def draw(self, surf):
         surf.fill((16, 20, 40))
         hud = self.game.hud
-        hud.text_center(surf, VIEW_W // 2, 34, "OPTIONS",
-                        (255, 226, 96), hud.big_font)
+        hud.text_center(surf, VIEW_W // 2, 20, "OPTIONS",
+                        (255, 226, 96), hud.mid_font)
         st = self._settings()
-        for i, key in enumerate(self.ROWS):
-            y = 84 + i * 22
-            label = self.LABELS[key]
+        labels, values = [], []
+        for key in self.ROWS:
+            labels.append(self.LABELS[key])
             if key in ("master_volume", "music_volume", "sfx_volume"):
-                value = f"{st[key]:.2f}"
+                values.append(f"{st[key]:.2f}")
+            elif key == "window_scale":
+                values.append(f"{st[key]}X")
             else:
-                value = "ON" if st[key] else "OFF"
-            color = (255, 255, 255) if i == self.sel else (150, 156, 175)
-            prefix = "> " if i == self.sel else "  "
-            hud.text(surf, VIEW_W // 2 - 90, y, f"{prefix}{label}",
-                     color)
-            hud.text(surf, VIEW_W // 2 + 40, y, value, color)
+                values.append("ON" if st[key] else "OFF")
+        # shared two-column menu (Phase 4 T4); cx/value_x tuned so the
+        # label column lands at the legacy x = VIEW_W//2 - 90 position
+        self.game.menu.draw(surf, VIEW_W // 2 - 34, 50, labels, self.sel,
+                            self.game.tick, row_h=19, font=hud.font,
+                            values=values, value_x=VIEW_W // 2 + 44,
+                            panel_pad_x=14, panel_pad_y=8)
         hud.text_center(surf, VIEW_W // 2, VIEW_H - 26,
                         "ARROWS ADJUST   ENTER TOGGLES")
         hud.text_center(surf, VIEW_W // 2, VIEW_H - 12, "ESC = BACK")

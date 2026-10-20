@@ -77,10 +77,7 @@ class PausedState(State):
                         (255, 226, 96), hud.big_font)
         labels = ("RESUME", "RESTART LEVEL", "OPTIONS",
                   "LEVEL SELECT", "QUIT TO TITLE")
-        for i, label in enumerate(labels):
-            color = (255, 255, 255) if i == self.sel else (150, 156, 175)
-            prefix = "> " if i == self.sel else "  "
-            hud.text_center(surf, VIEW_W // 2, 108 + i * 18,
-                            f"{prefix}{label}", color, hud.mid_font)
+        self.game.menu.draw(surf, VIEW_W // 2, 110, labels, self.sel,
+                            self.game.tick, row_h=18, panel_pad_x=20)
         hud.text_center(surf, VIEW_W // 2, VIEW_H - 18,
                         "ARROWS + ENTER    P/ESC RESUME    M MUTE")
